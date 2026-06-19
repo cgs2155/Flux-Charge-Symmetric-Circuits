@@ -1,0 +1,6 @@
+title LC oscillator
+# Bare LC loop.  Mode: EXTENDED.  Spectrum: omega*(n+1/2), omega = 1/sqrt(LC).
+L e1 v1 v2 L
+C e2 v2 v1 C
+loop f1 +e1 +e2
+ground v1

@@ -221,6 +221,54 @@ class ReductionResult:
             out.append((a, b, sp.simplify(-sp.I * hbar / c)))
         return out
 
+    # ------------------------------------------------------------------
+    # numerical analysis (optional; needs numpy / matplotlib)
+    # ------------------------------------------------------------------
+    def modes(self, mode_types=None):
+        """Classify the conjugate pairs into ``Mode`` objects (mode-type
+        detection).  See :func:`fluxcharge.numerics.classify_modes`."""
+        from .numerics import classify_modes
+        return classify_modes(self, mode_types=mode_types)
+
+    def hamiltonian_matrix(self, params=None, **kw):
+        """Dense numeric Hamiltonian matrix; see
+        :func:`fluxcharge.numerics.hamiltonian_matrix`."""
+        from .numerics import hamiltonian_matrix
+        return hamiltonian_matrix(self, params, **kw)
+
+    def eigenenergies(self, params=None, n_levels=6, **kw):
+        """Lowest ``n_levels`` eigenenergies; see
+        :func:`fluxcharge.numerics.eigenenergies`."""
+        from .numerics import eigenenergies
+        return eigenenergies(self, params, n_levels, **kw)
+
+    def eigensystem(self, params=None, n_levels=6, **kw):
+        """Lowest eigenvalues and eigenvectors; see
+        :func:`fluxcharge.numerics.eigensystem`."""
+        from .numerics import eigensystem
+        return eigensystem(self, params, n_levels, **kw)
+
+    def sweep(self, parameter, values, params=None, n_levels=6, **kw):
+        """Eigenenergies versus a swept parameter; see
+        :func:`fluxcharge.numerics.sweep`."""
+        from .numerics import sweep
+        return sweep(self, parameter, values, params, n_levels, **kw)
+
+    def plot_spectrum(self, parameter, values, params=None, **kw):
+        """Plot eigenenergies versus a swept parameter (matplotlib)."""
+        from .plotting import plot_spectrum
+        return plot_spectrum(self, parameter, values, params, **kw)
+
+    def plot_energy_levels(self, params=None, **kw):
+        """Draw the eigenenergies as a level diagram (matplotlib)."""
+        from .plotting import plot_energy_levels
+        return plot_energy_levels(self, params, **kw)
+
+    def plot_potential_wavefunctions(self, params=None, **kw):
+        """Plot the potential and eigenstate densities (single-mode)."""
+        from .plotting import plot_potential_wavefunctions
+        return plot_potential_wavefunctions(self, params, **kw)
+
     def compact_coordinates(self):
         """Surviving coordinates that appear inside a cosine of ``H`` -- the
         candidates for a periodic (``S^1``) identification, for which the naive

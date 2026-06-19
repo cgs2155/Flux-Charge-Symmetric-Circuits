@@ -19,8 +19,23 @@ import sympy as sp
 from .netlist import from_netlist, NetlistError
 
 
+def _parse_params(items):
+    """Turn ``["E_J=10", "C=1"]`` into ``{"E_J": 10.0, "C": 1.0}``."""
+    out = {}
+    for item in items or []:
+        for piece in item.split(","):
+            piece = piece.strip()
+            if not piece:
+                continue
+            if "=" not in piece:
+                raise ValueError(f"bad --param {piece!r}; expected NAME=VALUE")
+            name, val = piece.split("=", 1)
+            out[name.strip()] = float(val)
+    return out
+
+
 def analyze(source, draw=True, outfile=None, canonical=True, show_lagrangian=True,
-            make_dual=False):
+            make_dual=False, params=None, n_levels=6, wavefunctions=None):
     """Run the full pipeline on a netlist (path or string) and print results.
 
     Returns ``(circuit, reduction_result)``.
@@ -45,6 +60,28 @@ def analyze(source, draw=True, outfile=None, canonical=True, show_lagrangian=Tru
     result = ckt.hamiltonian(ground=ground, open_loops=open_loops,
                              canonical=canonical)
     print("\n" + result.report())
+
+    if params is not None:
+        print("\nMode types:")
+        for m in result.modes():
+            print(f"  {m.flux} / {m.charge}: {m.kind}")
+        try:
+            ev = result.eigenenergies(params, n_levels=n_levels)
+            print(f"\nLowest {len(ev)} eigenenergies (params: "
+                  + ", ".join(f"{k}={v}" for k, v in params.items()) + "):")
+            for i, e in enumerate(ev):
+                print(f"  E_{i} = {e:.6g}")
+            if len(ev) > 1:
+                print(f"  transition E_01 = {ev[1] - ev[0]:.6g}")
+        except Exception as exc:
+            print(f"(could not diagonalize: {exc})")
+        if wavefunctions:
+            try:
+                result.plot_potential_wavefunctions(params, n_levels=n_levels,
+                                                     path=wavefunctions)
+                print(f"Wavefunction plot written to {wavefunctions}")
+            except Exception as exc:
+                print(f"(could not plot wavefunctions: {exc})")
 
     if draw:
         if outfile is None:
@@ -75,12 +112,21 @@ def main(argv=None):
                    help="do not print the Lagrangian")
     p.add_argument("--dual", action="store_true",
                    help="analyze the LCG dual circuit instead (C<->L, JJ<->QPS, G->-1/G)")
+    p.add_argument("--param", action="append", metavar="NAME=VALUE",
+                   help="numeric value for a symbol (repeatable, or comma-separated); "
+                        "supplying any triggers numerical diagonalization")
+    p.add_argument("--levels", type=int, default=6,
+                   help="number of eigenenergies to report (default 6)")
+    p.add_argument("--wavefunctions", metavar="FILE",
+                   help="save a potential + wavefunction plot (single-mode circuits)")
     args = p.parse_args(argv)
 
     try:
+        params = _parse_params(args.param) if args.param else None
         analyze(args.netlist, draw=not args.no_draw, outfile=args.output,
                 canonical=not args.raw, show_lagrangian=not args.no_lagrangian,
-                make_dual=args.dual)
+                make_dual=args.dual, params=params, n_levels=args.levels,
+                wavefunctions=args.wavefunctions)
     except (NetlistError, ValueError, RuntimeError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -90,7 +90,10 @@ Blank lines and `#` comments are ignored. A value shared by two elements (the
 two `C`s above) becomes a shared symbol; omit the value for a unique one. The
 command prints the summary, Lagrangian, reduction report and (canonical)
 Hamiltonian, and writes `mycircuit.png`. Flags: `-o out.png`, `--no-draw`,
-`--raw` (skip canonicalization), `--no-lagrangian`.
+`--raw` (skip canonicalization), `--no-lagrangian`. Add
+`--param E_J=15 --param C=1` (repeatable, or comma-separated) to also classify
+the modes and report eigenenergies, `--levels N` to choose how many, and
+`--wavefunctions out.png` to save a potential/wavefunction plot.
 
 From Python:
 
@@ -225,12 +228,79 @@ each pair to unit coefficient and returns a directly usable Hamiltonian;
 
 **Getting numbers out.** `result.H` is a SymPy expression. Substitute values
 with `result.H.subs({sp.Symbol("C"): 1.0, ...})`, turn it into a fast numeric
-function with `sympy.lambdify`, and for spectra hand the canonical `H` and its
-conjugate pairs to a dedicated solver such as scqubits or QuTiP.
+function with `sympy.lambdify`, or use the built-in **numerical diagonalization
+and plotting** (next section). You can also hand the canonical `H` and its
+conjugate pairs to an external solver such as scqubits or QuTiP.
 
 Two runnable scripts are in [`examples/`](examples):
 `circulator_jj.py` (the manuscript example, with all intermediate matrices
 printed) and `lc_oscillator.py` (the linear sanity check).
+
+---
+
+## Numerical diagonalization and plotting
+
+Once a circuit has reduced to a complete Hamiltonian you can diagonalize it
+numerically and plot its spectrum, directly from the `ReductionResult`. This
+needs the optional `numpy` dependency (`pip install "fluxcharge[numeric]"`);
+plotting uses the always-installed matplotlib.
+
+```python
+import numpy as np
+from fluxcharge import Circuit
+
+ckt = Circuit()
+ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+ckt.add_capacitor("e2", "v1", "v2", C="C")
+ckt.add_loop("f1", ["+e1", "-e2"])
+res = ckt.hamiltonian(ground="v1")
+
+res.modes()                                  # mode-type detection (see below)
+res.eigenenergies({"E_J": 15.0, "C": 1.0}, n_levels=6)
+res.plot_potential_wavefunctions({"E_J": 15.0, "C": 1.0})   # -> matplotlib Axes
+res.plot_spectrum("q_f1", np.linspace(-1, 1, 41),           # charge dispersion
+                  {"E_J": 1.0, "C": 1.0}, relative=True)
+```
+
+The free functions `eigenenergies`, `eigensystem`, `sweep`,
+`hamiltonian_matrix`, `plot_energy_levels`, `plot_spectrum` and
+`plot_potential_wavefunctions` are also importable from the top level. Pass
+`cutoffs={symbol: size}` to set per-mode basis truncations and `offsets={charge:
+n_g}` for an offset charge. A runnable demo is in
+[`examples/numerical_spectrum.py`](examples/numerical_spectrum.py), and the
+desktop app has a **Diagonalize** panel.
+
+### Mode-type detection
+
+The basis that *correctly* diagonalizes a degree of freedom is fixed by how its
+flux enters the potential. `classify_modes` (or `result.modes()`) splits each
+conjugate pair into one of, symmetrically in flux and charge:
+
+| structure of the pair in `H`         | mode type       | basis                     |
+|--------------------------------------|-----------------|---------------------------|
+| `phi**2` and `q**2` terms            | `EXTENDED`      | harmonic oscillator       |
+| `q**2`, `cos(phi)`, no `phi**2`      | `PERIODIC`      | charge basis (transmon)   |
+| `phi**2`, `cos(q)`, no `q**2`        | `DUAL_PERIODIC` | flux basis (QPS + L)      |
+| flux/charge in no potential term     | `FREE`          | charge basis, offset only |
+
+This is the taxonomy used by scqubits, specialized to the flux-charge symmetric
+setting: because either variable can sit inside a cosine, a quantum phase slip
+gives a `DUAL_PERIODIC` (flux-basis) mode that has no analogue there. Override
+the automatic choice with `mode_types={flux_symbol: "periodic"}` etc.
+
+The solver is validated against analytics and against itself: the LC oscillator
+reproduces `omega*(n+1/2)` exactly; a transmon (charge basis) and its LCG dual,
+a quantum phase slip shunting an inductor (flux basis), give **identical
+spectra**; and a gyrator + LC reproduces the exact quadratic frequency
+`sqrt(a*c - b**2)`, validating the bilinear gyrator cross term.
+
+**Assumptions, surfaced not hidden.** Basis cutoffs are truncations (converge
+them). A gyrator's bilinear cross term `G*phi*q` is taken in the Hermitian
+Weyl-symmetrized form `(phi*q + q*phi)/2`, which is the unique correct ordering
+for the quadratic-plus-cosine Hamiltonians this package produces; a genuinely
+ambiguous higher-degree monomial would warn. `S^1` compactness of a periodic
+mode follows from the flux appearing only inside a cosine and is a physical
+modelling choice (overridable via `mode_types=`).
 
 ---
 

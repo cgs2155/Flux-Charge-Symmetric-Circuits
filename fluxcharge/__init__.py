@@ -41,6 +41,23 @@ from .visualize import circuit_to_networkx, draw_circuit
 from .schematic import draw_schematic
 from .netlist import from_netlist, parse_netlist, to_netlist
 from .transformations import dual
+from .numerics import (
+    classify_modes,
+    eigenenergies,
+    eigensystem,
+    hamiltonian_matrix,
+    sweep,
+    Mode,
+    EXTENDED,
+    PERIODIC,
+    DUAL_PERIODIC,
+    FREE,
+)
+from .plotting import (
+    plot_energy_levels,
+    plot_spectrum,
+    plot_potential_wavefunctions,
+)
 
 __all__ = [
     "Circuit",
@@ -58,6 +75,20 @@ __all__ = [
     "parse_netlist",
     "to_netlist",
     "dual",
+    # numerical analysis
+    "classify_modes",
+    "eigenenergies",
+    "eigensystem",
+    "hamiltonian_matrix",
+    "sweep",
+    "Mode",
+    "EXTENDED",
+    "PERIODIC",
+    "DUAL_PERIODIC",
+    "FREE",
+    "plot_energy_levels",
+    "plot_spectrum",
+    "plot_potential_wavefunctions",
 ]
 
 __version__ = "0.1.0"

@@ -1,0 +1,7 @@
+title Quantum phase slip + inductor (the transmon's LCG dual)
+# QPS shunting an inductor.  Mode: DUAL_PERIODIC (flux basis).
+# Same spectrum as the transmon under L<->C, E_S<->E_J.
+QPS e1 v1 v2 E_S
+L e2 v1 v2 L
+loop f1 +e1 -e2
+ground v1

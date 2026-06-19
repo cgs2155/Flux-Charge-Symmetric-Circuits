@@ -90,6 +90,32 @@ def compute(netlist_text, canonical=True, schematic_path=None):
     }
 
 
+def numerical_summary(netlist_text, params, n_levels=6, canonical=True):
+    """Headless numerical pipeline used by the UI (and easy to test).
+
+    Parses *netlist_text*, reduces, classifies the modes and diagonalizes with
+    the given *params* (a ``{name: value}`` dict).  Returns a dict with keys
+    ``modes`` (list of ``(flux, charge, kind)``), ``eigenenergies`` (numpy
+    array), ``transitions`` (gaps above the ground state), ``single_mode``
+    (bool), and ``result`` (the :class:`ReductionResult`).  Raises on malformed
+    input or missing parameters.
+    """
+    ckt = from_netlist(netlist_text)
+    ckt.validate()
+    ground = getattr(ckt, "ground", None)
+    open_loops = getattr(ckt, "open_loops", None) or None
+    result = ckt.hamiltonian(ground=ground, open_loops=open_loops, canonical=canonical)
+    modes = result.modes()
+    ev = result.eigenenergies(params, n_levels=n_levels)
+    return {
+        "result": result,
+        "modes": [(m.flux, m.charge, m.kind) for m in modes],
+        "eigenenergies": ev,
+        "transitions": [float(ev[i] - ev[0]) for i in range(1, len(ev))],
+        "single_mode": len(modes) == 1,
+    }
+
+
 _GREEK = {"phi": r"\phi", "varphi": r"\varphi", "theta": r"\theta",
           "psi": r"\psi", "Phi": r"\Phi"}
 
@@ -302,6 +328,22 @@ def main():  # pragma: no cover - interactive
     ttk.Button(left, text="Dualize  \u21c4   (LCG dual: C\u2194L, JJ\u2194QPS, G\u2192\u22121/G)",
                command=lambda: dualize()).pack(fill="x", pady=(6, 0))
 
+    # ---- numerics card ----
+    num_card = card(left, "Numerical diagonalization")
+    num_card.pack(fill="x", pady=(10, 0))
+    num_card.columnconfigure(1, weight=1)
+    ttk.Label(num_card, text="params:  E_J=15, C=1",
+              style="Muted.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
+    params_entry = ttk.Entry(num_card)
+    params_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 4))
+    params_entry.insert(0, "E_J=15, C=1, G=0.5")
+    ttk.Label(num_card, text="levels:", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 0))
+    levels_entry = ttk.Entry(num_card, width=5)
+    levels_entry.grid(row=2, column=1, sticky="w", pady=(4, 0))
+    levels_entry.insert(0, "6")
+    ttk.Button(num_card, text="Diagonalize", command=lambda: diagonalize()).grid(
+        row=1, column=2, rowspan=2, sticky="ns", padx=(4, 0))
+
     # ---- right: outputs ----
     fig = Figure(figsize=(6.8, 5.4))
     fig.patch.set_facecolor(SURFACE)
@@ -407,6 +449,59 @@ def main():  # pragma: no cover - interactive
         generate()
         status.config(text="showing the LCG dual circuit (press Dualize again to return)",
                       foreground="#0a7d2c")
+
+    def diagonalize():
+        from .__main__ import _parse_params
+        text = netlist.get("1.0", "end-1c")
+        try:
+            params = _parse_params([params_entry.get()])
+            n = max(1, int(levels_entry.get() or 6))
+            summ = numerical_summary(text, params, n_levels=n)
+        except Exception as exc:
+            status.config(text=f"diagonalize error: {exc}", foreground="#b00020")
+            messagebox.showerror("fluxcharge", str(exc))
+            return
+
+        ev = summ["eigenenergies"]
+        lines = ["Mode types:"]
+        for flux, charge, kind in summ["modes"]:
+            lines.append(f"  {flux} / {charge}: {kind}")
+        lines.append("\nEigenenergies:")
+        lines += [f"  E_{i} = {e:.6g}" for i, e in enumerate(ev)]
+        if summ["transitions"]:
+            lines.append("transitions above ground: "
+                         + ", ".join(f"{t:.5g}" for t in summ["transitions"]))
+        report.delete("1.0", "end")
+        report.insert("end", "\n".join(lines))
+        status.config(text="diagonalized", foreground="#0a7d2c")
+
+        # popup figure: potential + wavefunctions (single mode) or a level diagram
+        win = tk.Toplevel(root)
+        win.title("fluxcharge — spectrum")
+        win.configure(bg=SURFACE)
+        pfig = Figure(figsize=(6.0, 4.6))
+        pfig.patch.set_facecolor(SURFACE)
+        pax = pfig.add_subplot(111)
+        # prefer the potential + wavefunctions view; it needs H = kinetic + V(phi),
+        # which fails for a gyrator's phi*q cross term -- fall back to a level diagram.
+        drew = False
+        if summ["single_mode"]:
+            try:
+                summ["result"].plot_potential_wavefunctions(params, n_levels=n, ax=pax)
+                drew = True
+            except NotImplementedError:
+                status.config(
+                    text="no scalar potential (gyrator cross term); showing levels",
+                    foreground="#b26a00")
+        if not drew:
+            try:
+                summ["result"].plot_energy_levels(params, n_levels=n, ax=pax)
+            except Exception as exc:
+                pax.text(0.5, 0.5, f"plot unavailable:\n{exc}", ha="center",
+                         va="center", wrap=True, fontsize=9)
+        pcanvas = FigureCanvasTkAgg(pfig, master=win)
+        pcanvas.get_tk_widget().pack(fill="both", expand=True)
+        pcanvas.draw()
 
     generate()
     root.mainloop()

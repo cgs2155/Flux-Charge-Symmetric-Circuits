@@ -348,6 +348,161 @@ def test_lcg_duality():
     assert {type(el).__name__ for el in dd._elements} == {type(el).__name__ for el in c._elements}
 
 
+def _require_numpy():
+    try:
+        import numpy  # noqa: F401
+    except ModuleNotFoundError:
+        if hasattr(pytest, "skip"):
+            pytest.skip("numpy not installed")
+        raise SystemExit(0)
+
+
+def test_numerics_lc_oscillator_spectrum():
+    """The LC oscillator's numeric spectrum is omega*(n+1/2), omega=1/sqrt(LC)."""
+    _require_numpy()
+    import numpy as np
+    ckt = Circuit()
+    ckt.add_inductor("e1", "v1", "v2", L="L")
+    ckt.add_capacitor("e2", "v2", "v1", C="C")
+    ckt.add_loop("f1", ["+e1", "+e2"])
+    res = ckt.hamiltonian(ground="v1")
+    ev = res.eigenenergies({"L": 1.0, "C": 1.0}, n_levels=6, cutoffs={"phi_v2": 60})
+    assert np.allclose(ev, (np.arange(6) + 0.5), atol=1e-6)
+
+
+def test_numerics_mode_types():
+    """Mode-type detection: transmon PERIODIC, QPS DUAL_PERIODIC, fluxonium/LC EXTENDED."""
+    _require_numpy()
+    from fluxcharge.numerics import EXTENDED, PERIODIC, DUAL_PERIODIC
+
+    t = Circuit()
+    t.add_josephson("e1", "v1", "v2", EJ="E_J")
+    t.add_capacitor("e2", "v1", "v2", C="C")
+    t.add_loop("f1", ["+e1", "-e2"])
+    assert t.hamiltonian(ground="v1").modes()[0].kind == PERIODIC
+
+    q = Circuit()
+    q.add_qps("e1", "v1", "v2", ES="E_S")
+    q.add_inductor("e2", "v1", "v2", L="L")
+    q.add_loop("f1", ["+e1", "-e2"])
+    assert q.hamiltonian(ground="v1").modes()[0].kind == DUAL_PERIODIC
+
+    lc = Circuit()
+    lc.add_inductor("e1", "v1", "v2", L="L")
+    lc.add_capacitor("e2", "v2", "v1", C="C")
+    lc.add_loop("f1", ["+e1", "+e2"])
+    assert lc.hamiltonian(ground="v1").modes()[0].kind == EXTENDED
+
+
+def test_numerics_transmon_qps_duality():
+    """A transmon (charge basis) and its LCG dual -- a QPS shunting an inductor
+    (flux basis) -- have identical spectra, validating both bases and the
+    cosine handling against each other."""
+    _require_numpy()
+    import numpy as np
+    t = Circuit()
+    t.add_josephson("e1", "v1", "v2", EJ="E_J")
+    t.add_capacitor("e2", "v1", "v2", C="C")
+    t.add_loop("f1", ["+e1", "-e2"])
+    ev_t = t.hamiltonian(ground="v1").eigenenergies(
+        {"E_J": 10.0, "C": 1.0}, n_levels=6, cutoffs={"q_f1": 81})
+
+    q = Circuit()
+    q.add_qps("e1", "v1", "v2", ES="E_S")
+    q.add_inductor("e2", "v1", "v2", L="L")
+    q.add_loop("f1", ["+e1", "-e2"])
+    ev_q = q.hamiltonian(ground="v1").eigenenergies(
+        {"E_S": 10.0, "L": 1.0}, n_levels=6, cutoffs={"phi_v2": 80})
+
+    assert np.allclose(ev_t, ev_q, atol=1e-9)
+
+
+def test_numerics_gyrator_quadratic_exact():
+    """A gyrator + LC (junction replaced by an inductor) is an exactly solvable
+    quadratic Hamiltonian; the numeric spectrum equals omega*(n+1/2) with
+    omega = sqrt(a*c - b^2) -- validating the bilinear gyrator cross term."""
+    _require_numpy()
+    import numpy as np
+    c = Circuit()
+    c.add_inductor("e1", "v1", "v2", L="L")
+    c.add_capacitor("e2", "v2", "v3", C="C")
+    c.add_capacitor("e3", "v3", "v1", C="C")
+    c.add_gyrator(("e4", "v1", "v3"), ("e5", "v2", "v3"), G="G")
+    for n, e in [("f1", ["+e3", "+e4"]), ("f2", ["+e1", "-e4", "+e5"]),
+                 ("f3", ["+e2", "-e5"]), ("f4", ["-e1", "-e2", "-e3"])]:
+        c.add_loop(n, e)
+    res = c.hamiltonian(ground="v1", open_loops="f4", canonical=True)
+    C, L, G = 1.0, 1.0, 0.7
+    omega = np.sqrt((G ** 2 / C + 1.0 / L) * (2.0 / C) - (G / C) ** 2)
+    ev = res.eigenenergies({"C": C, "L": L, "G": G}, n_levels=6,
+                           cutoffs={"phi_v2": 120})
+    assert np.allclose(ev, omega * (np.arange(6) + 0.5), atol=1e-6)
+
+
+def test_numerics_circulator_runs_and_converges():
+    """The full non-reciprocal circulator diagonalizes to a real, convergent
+    spectrum (gyrator cross term + Josephson cosine together)."""
+    _require_numpy()
+    import numpy as np
+    c = Circuit()
+    c.add_josephson("e1", "v1", "v2", EJ="E_J")
+    c.add_capacitor("e2", "v2", "v3", C="C")
+    c.add_capacitor("e3", "v3", "v1", C="C")
+    c.add_gyrator(("e4", "v1", "v3"), ("e5", "v2", "v3"), G="G")
+    for n, e in [("f1", ["+e3", "+e4"]), ("f2", ["+e1", "-e4", "+e5"]),
+                 ("f3", ["+e2", "-e5"]), ("f4", ["-e1", "-e2", "-e3"])]:
+        c.add_loop(n, e)
+    res = c.hamiltonian(ground="v1", open_loops="f4")
+    p = {"E_J": 10.0, "C": 1.0, "G": 0.7}
+    ev60 = res.eigenenergies(p, n_levels=3, cutoffs={"phi_v2": 60})
+    ev90 = res.eigenenergies(p, n_levels=3, cutoffs={"phi_v2": 90})
+    assert np.all(np.isreal(ev90))
+    # ground and first excited converge tightly; higher levels a bit slower
+    assert np.allclose(ev60[:2], ev90[:2], atol=1e-5)
+    assert np.allclose(ev60, ev90, atol=1e-3)
+
+
+def test_gui_numerical_summary():
+    """The headless GUI numerics core classifies and diagonalizes a transmon."""
+    _require_numpy()
+    from fluxcharge.gui import numerical_summary
+    netlist = "J e1 v1 v2 E_J\nC e2 v1 v2 C\nloop f1 +e1 -e2\nground v1"
+    s = numerical_summary(netlist, {"E_J": 15.0, "C": 1.0}, n_levels=4)
+    assert s["single_mode"]
+    assert s["modes"][0][2] == "periodic"
+    assert len(s["eigenenergies"]) == 4
+    assert len(s["transitions"]) == 3
+    # transmon E_01 approaches sqrt(8 E_J E_C) - E_C with E_C = 1/(8C)
+    import numpy as np
+    EC = 1.0 / 8.0
+    assert abs(s["transitions"][0] - (np.sqrt(8 * 15.0 * EC) - EC)) < 0.05
+
+
+def test_numerics_default_cutoffs_all_mode_kinds():
+    """Every mode kind diagonalizes with the default basis size (no cutoffs=),
+    including DUAL_PERIODIC (a quantum phase slip)."""
+    _require_numpy()
+    import numpy as np
+    q = Circuit()
+    q.add_qps("e1", "v1", "v2", ES="E_S")
+    q.add_inductor("e2", "v1", "v2", L="L")
+    q.add_loop("f1", ["+e1", "-e2"])
+    ev = q.hamiltonian(ground="v1").eigenenergies({"E_S": 10.0, "L": 1.0}, n_levels=4)
+    assert len(ev) == 4 and np.all(np.isreal(ev))
+
+
+def test_numerics_requires_complete_canonical():
+    """Diagonalization refuses an incomplete reduction."""
+    _require_numpy()
+    from fluxcharge.numerics import hamiltonian_matrix
+    from fluxcharge.reduction import ReductionResult
+    import sympy as sp
+    bad = ReductionResult(H=sp.Symbol("phi_v1") ** 2, coordinates=[sp.Symbol("phi_v1")],
+                          conjugate_pairs=[], complete=False)
+    with pytest.raises(Exception):
+        hamiltonian_matrix(bad, {})
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

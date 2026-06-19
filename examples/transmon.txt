@@ -1,0 +1,6 @@
+title Transmon
+# Josephson junction shunted by a capacitor.  Mode: PERIODIC (charge basis).
+J e1 v1 v2 E_J
+C e2 v1 v2 C
+loop f1 +e1 -e2
+ground v1

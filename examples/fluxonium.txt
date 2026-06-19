@@ -1,0 +1,10 @@
+title Fluxonium
+# JJ shunted by an inductor and a capacitor.  Mode: EXTENDED (oscillator basis).
+J e1 v1 v2 E_J
+L e2 v1 v2 L
+C e3 v1 v2 C
+loop f1 +e1 -e2
+loop f2 +e2 -e3
+loop f3 -e1 +e3
+ground v1
+open f3
