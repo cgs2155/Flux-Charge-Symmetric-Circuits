@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fluxcharge"
+version = "0.1.0"
+description = "Symbolic Hamiltonians for lumped-element superconducting circuits in the flux-charge symmetric (LCG) formalism"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    { name = "C. Salcedo" },
+    { name = "S. Cocquyt" },
+    { name = "A. Osborne" },
+    { name = "A. A. Houck" },
+]
+keywords = [
+    "superconducting circuits",
+    "circuit quantization",
+    "Hamiltonian",
+    "gyrator",
+    "Josephson junction",
+    "quantum phase slip",
+    "sympy",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    "sympy>=1.10",
+    "schemdraw>=0.19",
+    "matplotlib>=3.5",
+    "networkx>=2.6",
+]
+
+[project.optional-dependencies]
+numeric = ["numpy>=1.20"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+fluxcharge = "fluxcharge.__main__:main"
+fluxcharge-gui = "fluxcharge.gui:main"
+
+[tool.setuptools.packages.find]
+include = ["fluxcharge*"]

@@ -1,0 +1,416 @@
+"""
+A small desktop UI for building a circuit and generating its Hamiltonian.
+
+Run it with::
+
+    fluxcharge-gui
+    # or
+    python -m fluxcharge.gui
+
+You describe the circuit in the netlist panel (the same format as
+:mod:`fluxcharge.netlist`), optionally using the *Add element / gyrator / loop*
+helpers so you do not have to type the syntax, then press **Generate**.  The
+app draws the schematic and shows the Lagrangian and Hamiltonian.
+
+The UI uses Tkinter, which ships with standard Python on Windows and macOS (on
+Linux install the system ``python3-tk`` package).  To turn it into a single
+double-clickable executable, freeze it with PyInstaller::
+
+    pyinstaller --onefile -n fluxcharge-gui -c fluxcharge/gui.py
+"""
+
+from __future__ import annotations
+
+import os
+import tempfile
+
+import sympy as sp
+
+from .netlist import from_netlist, to_netlist
+from .transformations import dual
+
+
+EXAMPLE = """\
+title Circulator
+J    e1  v1 v2  E_J
+C    e2  v2 v3  C
+C    e3  v3 v1  C
+gyrator  e4 v1 v3   e5 v2 v3   G
+loop  f1  +e3 +e4
+loop  f2  +e1 -e4 +e5
+loop  f3  +e2 -e5
+loop  f4  -e1 -e2 -e3
+ground v1
+open   f4
+"""
+
+
+def compute(netlist_text, canonical=True, schematic_path=None):
+    """Headless pipeline used by the UI (and easy to test).
+
+    Parses *netlist_text*, draws the schematic to *schematic_path* (a temp file
+    if None) and reduces to the Hamiltonian.  Returns a dict with keys
+    ``schematic`` (path or None), ``H``, ``H_latex``, ``lagrangian``,
+    ``report`` and ``title``.  Raises on malformed input.
+    """
+    ckt = from_netlist(netlist_text)
+    ckt.validate()
+
+    ground = getattr(ckt, "ground", None)
+    open_loops = getattr(ckt, "open_loops", None) or None
+    result = ckt.hamiltonian(ground=ground, open_loops=open_loops, canonical=canonical)
+
+    if schematic_path is None:
+        fd, schematic_path = tempfile.mkstemp(suffix=".png", prefix="fluxcharge_")
+        os.close(fd)
+    drawn = schematic_path
+    try:
+        # outer face comes from the planar embedding, independent of the gauge
+        ckt.schematic(path=schematic_path)
+    except Exception:
+        drawn = None
+
+    operators = list(result.coordinates)
+    comm = result.commutators()
+    comm_latex = r",\ \ ".join(
+        f"[{_operator_latex(a)},\\,{_operator_latex(b)}] = {sp.latex(v)}"
+        for a, b, v in comm)
+    compact = result.compact_coordinates()
+
+    return {
+        "title": getattr(ckt, "title", None),
+        "schematic": drawn,
+        "H": result.H,
+        "H_latex": _hamiltonian_latex(result.H, operators),
+        "commutators": comm,
+        "commutators_latex": comm_latex,
+        "compact": compact,
+        "lagrangian": ckt.lagrangian(),
+        "report": result.report(),
+    }
+
+
+_GREEK = {"phi": r"\phi", "varphi": r"\varphi", "theta": r"\theta",
+          "psi": r"\psi", "Phi": r"\Phi"}
+
+
+def _operator_latex(sym):
+    """LaTeX for a dynamical variable as a quantum operator: a hat over the
+    base symbol with the subscript outside the hat, e.g. ``phi_v2`` ->
+    ``\\hat{\\phi}_{v2}`` and ``q_f3`` -> ``\\hat{q}_{f3}``."""
+    name = getattr(sym, "name", str(sym))
+    base, _, sub = name.partition("_")
+    base_tex = _GREEK.get(base, base)
+    out = r"\hat{" + base_tex + "}"
+    if sub:
+        out += "_{" + sub + "}"
+    return out
+
+
+def _hamiltonian_latex(expr, operators):
+    """LaTeX of *expr* with each operator symbol hatted (parameters left as
+    ordinary c-numbers)."""
+    names = {s: _operator_latex(s) for s in operators}
+    return sp.latex(expr, symbol_names=names)
+
+
+def main():  # pragma: no cover - interactive
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox
+    import tkinter.font as tkfont
+    import matplotlib
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    import matplotlib.image as mpimg
+
+    # palette
+    BG, SURFACE, INK, MUTED = "#eceff4", "#ffffff", "#222a35", "#6b7785"
+    ACCENT, ACCENT_HOVER, BORDER, FIELD = "#0e7490", "#0b5566", "#cdd5df", "#ffffff"
+    ELEMENT_TYPES = ["C", "L", "J", "QPS"]
+
+    # crisp Computer-Modern-style math
+    matplotlib.rcParams["mathtext.fontset"] = "cm"
+    matplotlib.rcParams["font.family"] = "serif"
+    matplotlib.rcParams["figure.dpi"] = 110
+
+    root = tk.Tk()
+    root.title("fluxcharge — circuit to Hamiltonian")
+    root.geometry("1240x900")
+    root.minsize(1040, 720)
+    root.configure(bg=BG)
+
+    fams = set(tkfont.families())
+    UI = next((f for f in ["Segoe UI", "SF Pro Text", "Helvetica Neue",
+                           "Helvetica", "Arial", "DejaVu Sans"] if f in fams), "TkDefaultFont")
+    MONO = next((f for f in ["Cascadia Code", "Consolas", "Menlo",
+                             "DejaVu Sans Mono", "Courier New"] if f in fams), "TkFixedFont")
+
+    style = ttk.Style()
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+    style.configure(".", background=BG, foreground=INK, font=(UI, 10),
+                    bordercolor=BORDER, focuscolor=ACCENT)
+    style.configure("TFrame", background=BG)
+    style.configure("Header.TFrame", background=SURFACE)
+    style.configure("TLabel", background=BG, foreground=INK)
+    style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=(UI, 9))
+    style.configure("Title.TLabel", background=SURFACE, foreground=ACCENT, font=(UI, 18, "bold"))
+    style.configure("Subtitle.TLabel", background=SURFACE, foreground=MUTED, font=(UI, 10))
+    style.configure("TLabelframe", background=BG, bordercolor=BORDER,
+                    relief="solid", borderwidth=1, padding=8)
+    style.configure("TLabelframe.Label", background=BG, foreground=MUTED, font=(UI, 9, "bold"))
+    style.configure("TButton", background="#dde3ea", foreground=INK,
+                    padding=(9, 5), relief="flat", borderwidth=0)
+    style.map("TButton", background=[("active", "#cbd4df")])
+    style.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
+                    padding=(10, 9), font=(UI, 12, "bold"), relief="flat", borderwidth=0)
+    style.map("Accent.TButton", background=[("active", ACCENT_HOVER)])
+    style.configure("TEntry", fieldbackground=FIELD, bordercolor=BORDER,
+                    insertcolor=INK, padding=4, relief="flat")
+    style.configure("TMenubutton", background="#dde3ea", foreground=INK,
+                    padding=(8, 4), relief="flat")
+    style.map("TMenubutton", background=[("active", "#cbd4df")])
+    style.configure("TCheckbutton", background=BG, foreground=INK)
+    style.map("TCheckbutton", background=[("active", BG)])
+    style.configure("Status.TLabel", background="#e2e6ec", foreground=MUTED, padding=(10, 5))
+
+    def card(parent, title):
+        return ttk.LabelFrame(parent, text=title)
+
+    def style_text(widget):
+        widget.configure(bg=FIELD, fg=INK, insertbackground=INK, relief="flat",
+                         highlightthickness=1, highlightbackground=BORDER,
+                         highlightcolor=ACCENT, padx=8, pady=6, selectbackground="#bfe3ee")
+
+    # ---- header ----
+    header = ttk.Frame(root, style="Header.TFrame", padding=(16, 12))
+    header.pack(fill="x", side="top")
+    ttk.Label(header, text="fluxcharge", style="Title.TLabel").pack(anchor="w")
+    ttk.Label(header, text="build a circuit  \u2192  schematic, Lagrangian, Hamiltonian, commutators",
+              style="Subtitle.TLabel").pack(anchor="w")
+    tk.Frame(root, height=1, bg=BORDER).pack(fill="x", side="top")
+
+    # ---- status (bottom) ----
+    status = ttk.Label(root, text="ready", style="Status.TLabel", anchor="w")
+    status.pack(fill="x", side="bottom")
+
+    # ---- body ----
+    body = ttk.Frame(root, padding=12)
+    body.pack(fill="both", expand=True)
+    left = ttk.Frame(body, width=470)
+    left.pack(side="left", fill="y")
+    left.pack_propagate(False)
+    right = ttk.Frame(body)
+    right.pack(side="left", fill="both", expand=True, padx=(12, 0))
+
+    # ---- netlist card ----
+    nl_card = card(left, "Netlist")
+    nl_card.pack(fill="both", expand=True)
+    netlist = tk.Text(nl_card, height=16, font=(MONO, 10), wrap="none")
+    style_text(netlist)
+    netlist.pack(fill="both", expand=True)
+    netlist.insert("1.0", EXAMPLE)
+
+    def append_line(line):
+        text = netlist.get("1.0", "end-1c")
+        if text and not text.endswith("\n"):
+            netlist.insert("end", "\n")
+        netlist.insert("end", line + "\n")
+
+    fb = ttk.Frame(nl_card); fb.pack(fill="x", pady=(8, 0))
+
+    def do_load():
+        path = filedialog.askopenfilename(filetypes=[("netlist", "*.txt *.net *.circuit"), ("all", "*.*")])
+        if path:
+            with open(path) as fh:
+                netlist.delete("1.0", "end"); netlist.insert("1.0", fh.read())
+
+    def do_save():
+        path = filedialog.asksaveasfilename(defaultextension=".txt")
+        if path:
+            with open(path, "w") as fh:
+                fh.write(netlist.get("1.0", "end-1c"))
+
+    def do_example():
+        netlist.delete("1.0", "end"); netlist.insert("1.0", EXAMPLE)
+
+    def do_clear():
+        netlist.delete("1.0", "end")
+
+    for txt, cmd in [("Load", do_load), ("Save", do_save), ("Example", do_example), ("Clear", do_clear)]:
+        ttk.Button(fb, text=txt, command=cmd).pack(side="left", padx=(0, 4))
+    use_latex = tk.BooleanVar(value=False)
+    ttk.Checkbutton(fb, text="LaTeX", variable=use_latex,
+                    command=lambda: _rerender()).pack(side="right")
+
+    # ---- builder card ----
+    b = card(left, "Add to circuit")
+    b.pack(fill="x", pady=(10, 0))
+    b.columnconfigure(1, weight=1)
+
+    ttk.Label(b, text="element:  type · name · node1 · node2 · value",
+              style="Muted.TLabel").grid(row=0, column=0, columnspan=6, sticky="w", pady=(0, 3))
+    etype = tk.StringVar(value="C")
+    ttk.OptionMenu(b, etype, "C", *ELEMENT_TYPES).grid(row=1, column=0, padx=(0, 4), sticky="ew")
+    e_name = ttk.Entry(b, width=6); e_name.grid(row=1, column=1, padx=2, sticky="ew"); e_name.insert(0, "e1")
+    e_n1 = ttk.Entry(b, width=6); e_n1.grid(row=1, column=2, padx=2); e_n1.insert(0, "v1")
+    e_n2 = ttk.Entry(b, width=6); e_n2.grid(row=1, column=3, padx=2); e_n2.insert(0, "v2")
+    e_val = ttk.Entry(b, width=7); e_val.grid(row=1, column=4, padx=2); e_val.insert(0, "C")
+
+    def add_element():
+        append_line(f"{etype.get()}  {e_name.get()}  {e_n1.get()} {e_n2.get()}  {e_val.get()}".rstrip())
+    ttk.Button(b, text="add", command=add_element).grid(row=1, column=5, padx=(4, 0), sticky="ew")
+
+    ttk.Label(b, text="gyrator:  edge1 a b · edge2 a b · ratio",
+              style="Muted.TLabel").grid(row=2, column=0, columnspan=6, sticky="w", pady=(10, 3))
+    gwrap = ttk.Frame(b); gwrap.grid(row=3, column=0, columnspan=5, sticky="w")
+    g_fields = []
+    for default in ["e4", "v1", "v3", "e5", "v2", "v3", "G"]:
+        en = ttk.Entry(gwrap, width=4); en.pack(side="left", padx=1); en.insert(0, default)
+        g_fields.append(en)
+
+    def add_gyrator():
+        v = [f.get() for f in g_fields]
+        append_line(f"gyrator  {v[0]} {v[1]} {v[2]}   {v[3]} {v[4]} {v[5]}   {v[6]}")
+    ttk.Button(b, text="add", command=add_gyrator).grid(row=3, column=5, padx=(4, 0), sticky="ew")
+
+    ttk.Label(b, text="loop:  name · signed edges",
+              style="Muted.TLabel").grid(row=4, column=0, columnspan=6, sticky="w", pady=(10, 3))
+    l_name = ttk.Entry(b, width=6); l_name.grid(row=5, column=0, padx=(0, 2)); l_name.insert(0, "f1")
+    l_edges = ttk.Entry(b); l_edges.grid(row=5, column=1, columnspan=4, padx=2, sticky="ew"); l_edges.insert(0, "+e1 -e2")
+
+    def add_loop():
+        append_line(f"loop  {l_name.get()}  {l_edges.get()}")
+    ttk.Button(b, text="add", command=add_loop).grid(row=5, column=5, padx=(4, 0), sticky="ew")
+
+    ttk.Label(b, text="gauge:  ground node · open loop",
+              style="Muted.TLabel").grid(row=6, column=0, columnspan=6, sticky="w", pady=(10, 3))
+    g_ground = ttk.Entry(b, width=6); g_ground.grid(row=7, column=0, padx=(0, 2)); g_ground.insert(0, "v1")
+    g_open = ttk.Entry(b, width=6); g_open.grid(row=7, column=1, padx=2, sticky="w")
+
+    def add_gauge():
+        if g_ground.get().strip():
+            append_line(f"ground {g_ground.get().strip()}")
+        if g_open.get().strip():
+            append_line(f"open   {g_open.get().strip()}")
+    ttk.Button(b, text="set", command=add_gauge).grid(row=7, column=5, padx=(4, 0), sticky="ew")
+
+    ttk.Button(left, text="Generate  \u2192", style="Accent.TButton",
+               command=lambda: generate()).pack(fill="x", pady=(12, 0))
+    ttk.Button(left, text="Dualize  \u21c4   (LCG dual: C\u2194L, JJ\u2194QPS, G\u2192\u22121/G)",
+               command=lambda: dualize()).pack(fill="x", pady=(6, 0))
+
+    # ---- right: outputs ----
+    fig = Figure(figsize=(6.8, 5.4))
+    fig.patch.set_facecolor(SURFACE)
+    ax_sch = fig.add_axes([0.03, 0.50, 0.94, 0.45]); ax_sch.axis("off")
+    ax_h = fig.add_axes([0.03, 0.27, 0.94, 0.20]); ax_h.axis("off")
+    ax_comm = fig.add_axes([0.03, 0.03, 0.94, 0.21]); ax_comm.axis("off")
+    ax_sch.text(0.5, 0.5, "press Generate", ha="center", va="center", color="#aab2bd")
+    right.rowconfigure(0, weight=1)
+    right.rowconfigure(1, weight=0, minsize=150)
+    right.columnconfigure(0, weight=1)
+
+    canvas_border = tk.Frame(right, bg=BORDER)
+    canvas_border.grid(row=0, column=0, sticky="nsew")
+    canvas = FigureCanvasTkAgg(fig, master=canvas_border)
+    canvas.get_tk_widget().pack(fill="both", expand=True, padx=1, pady=1)
+
+    rep_card = card(right, "details")
+    rep_card.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+    rep_vsb = ttk.Scrollbar(rep_card, orient="vertical")
+    rep_vsb.pack(side="right", fill="y")
+    report = tk.Text(rep_card, height=8, font=(MONO, 9), wrap="none", yscrollcommand=rep_vsb.set)
+    style_text(report)
+    report.pack(side="left", fill="both", expand=True)
+    rep_vsb.config(command=report.yview)
+
+    last = {"out": None}
+
+    def _draw_panels(out):
+        ax_sch.clear(); ax_sch.axis("off")
+        if out["schematic"] and os.path.exists(out["schematic"]):
+            ax_sch.imshow(mpimg.imread(out["schematic"]))
+        ax_sch.set_title((out["title"] or "circuit").replace("_", r"\_"),
+                         fontsize=12, color=INK, fontfamily="sans-serif")
+
+        ax_h.clear(); ax_h.axis("off")
+        ax_h.text(0.0, 0.95, "Hamiltonian", transform=ax_h.transAxes, ha="left",
+                  va="top", fontsize=9, color=MUTED, fontfamily="sans-serif")
+        ax_h.text(0.5, 0.45, f"$\\hat{{H}} = {out['H_latex']}$",
+                  ha="center", va="center", fontsize=16, color=INK)
+
+        ax_comm.clear(); ax_comm.axis("off")
+        if out["commutators_latex"]:
+            ax_comm.text(0.0, 0.95, "commutation relations", transform=ax_comm.transAxes,
+                         ha="left", va="top", fontsize=9, color=MUTED, fontfamily="sans-serif")
+            ax_comm.text(0.5, 0.50, f"${out['commutators_latex']}$",
+                         ha="center", va="center", fontsize=15, color=INK)
+            if out["compact"]:
+                names = ", ".join(f"${_operator_latex(s)}$" for s in out["compact"])
+                ax_comm.text(0.5, 0.08,
+                             f"({names} sit inside a cosine; may live on $S^1$, "
+                             "then use the exponential form)",
+                             ha="center", va="center", fontsize=8, color=MUTED,
+                             fontfamily="sans-serif")
+        canvas.draw()
+
+    def _rerender():
+        out = last["out"]
+        if out is None:
+            return
+        want = bool(use_latex.get())
+        matplotlib.rcParams["text.usetex"] = want
+        try:
+            _draw_panels(out)
+            status.config(text="rendered with system LaTeX" if want else "generated",
+                          foreground="#0a7d2c")
+        except Exception as exc:
+            if want:   # no TeX install / render failure: fall back to mathtext
+                matplotlib.rcParams["text.usetex"] = False
+                use_latex.set(False)
+                try:
+                    _draw_panels(out)
+                except Exception:
+                    pass
+                status.config(text=f"system LaTeX unavailable; using mathtext", foreground="#b26a00")
+            else:
+                status.config(text=f"render error: {exc}", foreground="#b00020")
+
+    def generate():
+        text = netlist.get("1.0", "end-1c")
+        try:
+            out = compute(text, canonical=True)
+        except Exception as exc:
+            status.config(text=f"error: {exc}", foreground="#b00020")
+            messagebox.showerror("fluxcharge", str(exc))
+            return
+        last["out"] = out
+        _rerender()
+        report.delete("1.0", "end")
+        report.insert("end", f"H = {out['H']}\n\nLagrangian:\n{out['lagrangian']}\n\n{out['report']}")
+
+    def dualize():
+        text = netlist.get("1.0", "end-1c")
+        try:
+            ckt = from_netlist(text)
+            ckt.validate()
+            d = dual(ckt)
+            netlist.delete("1.0", "end")
+            netlist.insert("1.0", to_netlist(d))
+        except Exception as exc:
+            status.config(text=f"dual error: {exc}", foreground="#b00020")
+            messagebox.showerror("fluxcharge", str(exc))
+            return
+        generate()
+        status.config(text="showing the LCG dual circuit (press Dualize again to return)",
+                      foreground="#0a7d2c")
+
+    generate()
+    root.mainloop()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

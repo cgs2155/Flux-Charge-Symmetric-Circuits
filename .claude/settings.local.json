@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest -q)",
+      "Bash(python -c \"import pytest\")",
+      "Bash(pip show *)",
+      "Bash(py -m pytest -q)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}

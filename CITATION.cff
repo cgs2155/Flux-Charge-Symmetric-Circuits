@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the software and the accompanying paper."
+title: "fluxcharge: symbolic Hamiltonians for lumped-element superconducting circuits"
+abstract: >-
+  A Python package that builds the flux-charge symmetric (LCG) Lagrangian of a
+  lumped-element superconducting circuit (capacitors, inductors, Josephson
+  junctions, quantum phase slips, gyrators) and reduces it to an analytical
+  Hamiltonian following the constraint analysis of Salcedo, Cocquyt, Osborne and
+  Houck.
+type: software
+version: 0.1.0
+date-released: "2026-06-18"
+license: MIT
+repository-code: "https://github.com/REPLACE_ME/fluxcharge"
+authors:
+  - family-names: Salcedo
+    given-names: C.
+  - family-names: Cocquyt
+    given-names: S.
+  - family-names: Osborne
+    given-names: A.
+  - family-names: Houck
+    given-names: A. A.
+keywords:
+  - superconducting circuits
+  - circuit quantization
+  - Hamiltonian
+  - gyrator
+  - Josephson junction
+  - quantum phase slip
+# Fill in once the release is archived (e.g. on Zenodo) and the paper is posted:
+# doi: 10.5281/zenodo.XXXXXXX
+preferred-citation:
+  type: article
+  title: "Gyrators for superconducting circuit design"
+  authors:
+    - family-names: Salcedo
+      given-names: C.
+    - family-names: Cocquyt
+      given-names: S.
+    - family-names: Osborne
+      given-names: A.
+    - family-names: Houck
+      given-names: A. A.
+  year: 2026
+  # doi: 10.XXXX/XXXXX     # add the paper DOI / arXiv id when available
