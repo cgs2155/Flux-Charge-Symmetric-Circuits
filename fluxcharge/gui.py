@@ -45,13 +45,16 @@ open   f4
 """
 
 
-def compute(netlist_text, canonical=True, schematic_path=None):
+def compute(netlist_text, canonical=True, schematic_path=None, draw=True):
     """Headless pipeline used by the UI (and easy to test).
 
-    Parses *netlist_text*, draws the schematic to *schematic_path* (a temp file
-    if None) and reduces to the Hamiltonian.  Returns a dict with keys
+    Parses *netlist_text* and reduces to the Hamiltonian.  When *draw* is true
+    (the default) the schematic is also rendered to *schematic_path* (a temp
+    file if None); pass ``draw=False`` to skip all matplotlib work -- the UI
+    does so to run the (pure-sympy) reduction off the main thread and draw the
+    schematic itself on the main thread.  Returns a dict with keys ``circuit``,
     ``schematic`` (path or None), ``H``, ``H_latex``, ``lagrangian``,
-    ``report`` and ``title``.  Raises on malformed input.
+    ``report``, ``title`` and the commutator data.  Raises on malformed input.
     """
     ckt = from_netlist(netlist_text)
     ckt.validate()
@@ -60,15 +63,17 @@ def compute(netlist_text, canonical=True, schematic_path=None):
     open_loops = getattr(ckt, "open_loops", None) or None
     result = ckt.hamiltonian(ground=ground, open_loops=open_loops, canonical=canonical)
 
-    if schematic_path is None:
-        fd, schematic_path = tempfile.mkstemp(suffix=".png", prefix="fluxcharge_")
-        os.close(fd)
-    drawn = schematic_path
-    try:
-        # outer face comes from the planar embedding, independent of the gauge
-        ckt.schematic(path=schematic_path)
-    except Exception:
-        drawn = None
+    drawn = None
+    if draw:
+        if schematic_path is None:
+            fd, schematic_path = tempfile.mkstemp(suffix=".png", prefix="fluxcharge_")
+            os.close(fd)
+        drawn = schematic_path
+        try:
+            # outer face comes from the planar embedding, independent of the gauge
+            ckt.schematic(path=schematic_path)
+        except Exception:
+            drawn = None
 
     operators = list(result.coordinates)
     comm = result.commutators()
@@ -79,6 +84,8 @@ def compute(netlist_text, canonical=True, schematic_path=None):
 
     return {
         "title": getattr(ckt, "title", None),
+        "circuit": ckt,
+        "result": result,
         "schematic": drawn,
         "H": result.H,
         "H_latex": _hamiltonian_latex(result.H, operators),
@@ -105,6 +112,15 @@ def numerical_summary(netlist_text, params, n_levels=6, canonical=True):
     ground = getattr(ckt, "ground", None)
     open_loops = getattr(ckt, "open_loops", None) or None
     result = ckt.hamiltonian(ground=ground, open_loops=open_loops, canonical=canonical)
+    return summary_from_result(result, params, n_levels)
+
+
+def summary_from_result(result, params, n_levels=6):
+    """Build the numerical-summary dict from an already-reduced result.
+
+    Lets the UI skip the (re)reduction when the circuit is unchanged since the
+    last Generate -- diagonalization then costs only the matrix build + eigh.
+    """
     modes = result.modes()
     ev = result.eigenenergies(params, n_levels=n_levels)
     return {
@@ -141,6 +157,8 @@ def _hamiltonian_latex(expr, operators):
 
 
 def main():  # pragma: no cover - interactive
+    import queue
+    import threading
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
     import tkinter.font as tkfont
@@ -218,9 +236,16 @@ def main():  # pragma: no cover - interactive
               style="Subtitle.TLabel").pack(anchor="w")
     tk.Frame(root, height=1, bg=BORDER).pack(fill="x", side="top")
 
-    # ---- status (bottom) ----
-    status = ttk.Label(root, text="ready", style="Status.TLabel", anchor="w")
-    status.pack(fill="x", side="bottom")
+    # ---- status (bottom): label on the left, progress spinner on the right ----
+    style.configure("Status.Horizontal.TProgressbar", background=ACCENT,
+                    troughcolor="#e2e6ec", bordercolor="#e2e6ec")
+    status_bar = ttk.Frame(root, style="TFrame")
+    status_bar.pack(fill="x", side="bottom")
+    status = ttk.Label(status_bar, text="ready", style="Status.TLabel", anchor="w")
+    status.pack(side="left", fill="x", expand=True)
+    progress = ttk.Progressbar(status_bar, mode="indeterminate", length=140,
+                               style="Status.Horizontal.TProgressbar")
+    # shown (packed) only while a background job runs
 
     # ---- body ----
     body = ttk.Frame(root, padding=12)
@@ -323,10 +348,12 @@ def main():  # pragma: no cover - interactive
             append_line(f"open   {g_open.get().strip()}")
     ttk.Button(b, text="set", command=add_gauge).grid(row=7, column=5, padx=(4, 0), sticky="ew")
 
-    ttk.Button(left, text="Generate  \u2192", style="Accent.TButton",
-               command=lambda: generate()).pack(fill="x", pady=(12, 0))
-    ttk.Button(left, text="Dualize  \u21c4   (LCG dual: C\u2194L, JJ\u2194QPS, G\u2192\u22121/G)",
-               command=lambda: dualize()).pack(fill="x", pady=(6, 0))
+    gen_btn = ttk.Button(left, text="Generate  \u2192", style="Accent.TButton",
+                         command=lambda: generate())
+    gen_btn.pack(fill="x", pady=(12, 0))
+    dual_btn = ttk.Button(left, text="Dualize  \u21c4   (LCG dual: C\u2194L, JJ\u2194QPS, G\u2192\u22121/G)",
+                          command=lambda: dualize())
+    dual_btn.pack(fill="x", pady=(6, 0))
 
     # ---- numerics card ----
     num_card = card(left, "Numerical diagonalization")
@@ -341,8 +368,8 @@ def main():  # pragma: no cover - interactive
     levels_entry = ttk.Entry(num_card, width=5)
     levels_entry.grid(row=2, column=1, sticky="w", pady=(4, 0))
     levels_entry.insert(0, "6")
-    ttk.Button(num_card, text="Diagonalize", command=lambda: diagonalize()).grid(
-        row=1, column=2, rowspan=2, sticky="ns", padx=(4, 0))
+    diag_btn = ttk.Button(num_card, text="Diagonalize", command=lambda: diagonalize())
+    diag_btn.grid(row=1, column=2, rowspan=2, sticky="ns", padx=(4, 0))
 
     # ---- right: outputs ----
     fig = Figure(figsize=(6.8, 5.4))
@@ -369,7 +396,62 @@ def main():  # pragma: no cover - interactive
     report.pack(side="left", fill="both", expand=True)
     rep_vsb.config(command=report.yview)
 
-    last = {"out": None}
+    last = {"out": None, "text": None}
+    busy_state = {"n": 0}
+    action_buttons = [gen_btn, dual_btn, diag_btn]
+
+    def busy_on(text):
+        busy_state["n"] += 1
+        for btn in action_buttons:
+            btn.state(["disabled"])
+        root.configure(cursor="watch")
+        if not progress.winfo_ismapped():
+            progress.pack(side="right", padx=10, pady=4)
+            progress.start(12)
+        status.config(text=text, foreground=MUTED)
+
+    def busy_off():
+        busy_state["n"] = max(0, busy_state["n"] - 1)
+        if busy_state["n"] == 0:
+            progress.stop()
+            progress.pack_forget()
+            root.configure(cursor="")
+            for btn in action_buttons:
+                btn.state(["!disabled"])
+
+    def run_async(work, on_success, busy_text="computing…"):
+        """Run *work()* (pure compute, no Tk/matplotlib) in a worker thread; call
+        *on_success(result)* on the main thread when done.  Keeps the event loop
+        free so the progress spinner animates and the window stays responsive."""
+        busy_on(busy_text)
+        box = {}
+
+        def worker():
+            try:
+                box["ok"] = work()
+            except Exception as exc:  # marshalled back to the main thread
+                box["err"] = exc
+
+        th = threading.Thread(target=worker, daemon=True)
+        th.start()
+
+        def check():
+            if th.is_alive():
+                root.after(60, check)
+                return
+            busy_off()
+            if "err" in box:
+                exc = box["err"]
+                status.config(text=f"error: {exc}", foreground="#b00020")
+                messagebox.showerror("fluxcharge", str(exc))
+                return
+            try:
+                on_success(box["ok"])
+            except Exception as exc:
+                status.config(text=f"error: {exc}", foreground="#b00020")
+                messagebox.showerror("fluxcharge", str(exc))
+
+        root.after(60, check)
 
     def _draw_panels(out):
         ax_sch.clear(); ax_sch.axis("off")
@@ -423,16 +505,28 @@ def main():  # pragma: no cover - interactive
 
     def generate():
         text = netlist.get("1.0", "end-1c")
-        try:
-            out = compute(text, canonical=True)
-        except Exception as exc:
-            status.config(text=f"error: {exc}", foreground="#b00020")
-            messagebox.showerror("fluxcharge", str(exc))
-            return
-        last["out"] = out
-        _rerender()
-        report.delete("1.0", "end")
-        report.insert("end", f"H = {out['H']}\n\nLagrangian:\n{out['lagrangian']}\n\n{out['report']}")
+
+        def work():
+            # pure-sympy reduction off the main thread; no matplotlib here
+            return compute(text, canonical=True, draw=False)
+
+        def done(out):
+            # the schematic uses schemdraw/matplotlib, so draw it on the main thread
+            try:
+                fd, p = tempfile.mkstemp(suffix=".png", prefix="fluxcharge_")
+                os.close(fd)
+                out["circuit"].schematic(path=p)
+                out["schematic"] = p
+            except Exception:
+                out["schematic"] = None
+            last["out"] = out
+            last["text"] = text
+            _rerender()
+            report.delete("1.0", "end")
+            report.insert("end", f"H = {out['H']}\n\nLagrangian:\n"
+                          f"{out['lagrangian']}\n\n{out['report']}")
+
+        run_async(work, done, busy_text="reducing circuit…")
 
     def dualize():
         text = netlist.get("1.0", "end-1c")
@@ -447,8 +541,6 @@ def main():  # pragma: no cover - interactive
             messagebox.showerror("fluxcharge", str(exc))
             return
         generate()
-        status.config(text="showing the LCG dual circuit (press Dualize again to return)",
-                      foreground="#0a7d2c")
 
     def diagonalize():
         from .__main__ import _parse_params
@@ -456,12 +548,24 @@ def main():  # pragma: no cover - interactive
         try:
             params = _parse_params([params_entry.get()])
             n = max(1, int(levels_entry.get() or 6))
-            summ = numerical_summary(text, params, n_levels=n)
         except Exception as exc:
             status.config(text=f"diagonalize error: {exc}", foreground="#b00020")
             messagebox.showerror("fluxcharge", str(exc))
             return
 
+        # reuse the reduction from the last Generate when the circuit is unchanged,
+        # so diagonalizing costs only the matrix build + eigh (not a re-reduction)
+        cached = (last["out"] if last["text"] == text and last["out"] else None)
+
+        def work():
+            if cached is not None:
+                return summary_from_result(cached["result"], params, n_levels=n)
+            return numerical_summary(text, params, n_levels=n)
+
+        run_async(work, lambda summ: _show_diag(summ, params, n),
+                  busy_text="diagonalizing…")
+
+    def _show_diag(summ, params, n):
         ev = summ["eigenenergies"]
         lines = ["Mode types:"]
         for flux, charge, kind in summ["modes"]:

@@ -491,6 +491,21 @@ def test_numerics_default_cutoffs_all_mode_kinds():
     assert len(ev) == 4 and np.all(np.isreal(ev))
 
 
+def test_gui_summary_from_result_matches():
+    """summary_from_result (the cached-reduction path the UI uses) agrees with
+    the full numerical_summary."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import from_netlist
+    from fluxcharge.gui import numerical_summary, summary_from_result
+    netlist = "J e1 v1 v2 E_J\nC e2 v1 v2 C\nloop f1 +e1 -e2\nground v1"
+    full = numerical_summary(netlist, {"E_J": 12.0, "C": 1.0}, n_levels=5)
+    res = from_netlist(netlist).hamiltonian(ground="v1")
+    cached = summary_from_result(res, {"E_J": 12.0, "C": 1.0}, n_levels=5)
+    assert np.allclose(full["eigenenergies"], cached["eigenenergies"])
+    assert full["modes"] == cached["modes"]
+
+
 def test_numerics_requires_complete_canonical():
     """Diagonalization refuses an incomplete reduction."""
     _require_numpy()
