@@ -314,6 +314,19 @@ def main():  # pragma: no cover - interactive
     import tkinter.font as tkfont
 
     _MOD = "⌘" if _sys.platform == "darwin" else "Ctrl+"   # ⌘ on macOS
+
+    # Use a stable per-user matplotlib cache dir *before* importing matplotlib so
+    # the font cache is built once and reused.  PyInstaller's runtime hook forces
+    # MPLCONFIGDIR to a fresh temp dir every launch (and deletes it at exit),
+    # which rebuilds the font cache each time (a multi-second delay); override it
+    # when frozen.  For a normal run, respect any user-set MPLCONFIGDIR.
+    _mpldir = os.path.expanduser("~/.cache/fluxcharge/matplotlib")
+    if getattr(_sys, "frozen", False) or not os.environ.get("MPLCONFIGDIR"):
+        try:
+            os.makedirs(_mpldir, exist_ok=True)
+            os.environ["MPLCONFIGDIR"] = _mpldir
+        except Exception:
+            pass
     import matplotlib
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
