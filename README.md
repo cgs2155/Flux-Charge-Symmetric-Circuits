@@ -145,6 +145,15 @@ reliably on macOS. Set `FLUXCHARGE_DEBUG=1` to log GUI actions to
 The **Dualize** button replaces the circuit with its LCG dual and regenerates;
 press it again to return.
 
+The desktop app also exposes the analysis features: a **Circuits** menu loads a
+ready-made circuit from the library; the numerics panel has a **physical units**
+toggle (enter `70fF` / `150nH` / `15GHz` and read the spectrum in GHz) and a
+**sweep** row (plot the spectrum versus any parameter or bias, e.g. flux or
+offset charge); and **Diagonalize** reports the eigenenergies together with
+charge matrix elements and the bias sensitivity `df01/d(bias)` (which is zero at
+a sweet spot). External flux / offset charge are entered as netlist directives
+(`flux <loop>` / `offset <node>`).
+
 ---
 
 ## Circuit duality

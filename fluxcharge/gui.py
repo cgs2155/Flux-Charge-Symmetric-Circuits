@@ -542,6 +542,27 @@ def main():  # pragma: no cover - interactive
                           command=lambda: diagonalize())
     diag_btn.grid(row=1, column=2, rowspan=2, sticky="ns", padx=(4, 0))
 
+    units_var = tk.BooleanVar(value=False)
+    ttk.Checkbutton(num_card, text="physical units (fF / nH / GHz → spectrum in GHz)",
+                    variable=units_var).grid(row=3, column=0, columnspan=3,
+                                             sticky="w", pady=(4, 0))
+
+    ttk.Label(num_card, text="sweep:  parameter · from · to · points",
+              style="Muted.TLabel").grid(row=4, column=0, columnspan=3,
+                                         sticky="w", pady=(8, 2))
+    sweep_wrap = ttk.Frame(num_card)
+    sweep_wrap.grid(row=5, column=0, columnspan=3, sticky="ew")
+    sweep_param = ttk.Entry(sweep_wrap, width=9); sweep_param.pack(side="left", padx=1)
+    sweep_param.insert(0, "E_J")
+    sweep_from = ttk.Entry(sweep_wrap, width=5); sweep_from.pack(side="left", padx=1)
+    sweep_from.insert(0, "1")
+    sweep_to = ttk.Entry(sweep_wrap, width=5); sweep_to.pack(side="left", padx=1)
+    sweep_to.insert(0, "30")
+    sweep_pts = ttk.Entry(sweep_wrap, width=5); sweep_pts.pack(side="left", padx=1)
+    sweep_pts.insert(0, "41")
+    ttk.Button(sweep_wrap, text="Sweep", command=lambda: sweep_plot()).pack(
+        side="left", padx=(4, 0))
+
     # ---- right: outputs ----
     fig = Figure(figsize=(6.8, 5.4))
     fig.patch.set_facecolor(SURFACE)
@@ -773,15 +794,44 @@ def main():  # pragma: no cover - interactive
             return
         generate()
 
-    def diagonalize():
+    def _parse_physical(raw):
+        """``"C=70fF, E_J=15GHz"`` -> ``{"C":"70fF","E_J":"15GHz"}`` (units kept)."""
+        out = {}
+        for piece in raw.replace(",", " ").split():
+            if "=" in piece:
+                k, v = piece.split("=", 1)
+                out[k.strip()] = v.strip()
+        return out
+
+    def _diag_params(text):
+        """Numeric params from the box: physical (fF/nH/GHz -> GHz spectrum) when
+        the units box is ticked, else raw natural-unit numbers."""
+        raw = params_entry.get()
+        if units_var.get():
+            from .units import to_natural
+            return to_natural(from_netlist(text), _parse_physical(raw))
         from .__main__ import _parse_params
+        return _parse_params([raw])
+
+    def _current_result(text):
+        """The reduction for *text*, reusing the last Generate when unchanged."""
+        if last["text"] == text and last["out"]:
+            return last["out"]["result"]
+        ckt = from_netlist(text)
+        ckt.validate()
+        return ckt.hamiltonian(ground=getattr(ckt, "ground", None),
+                               open_loops=getattr(ckt, "open_loops", None) or None,
+                               canonical=True)
+
+    def diagonalize():
         text = netlist.get("1.0", "end-1c")
         try:
-            params = _parse_params([params_entry.get()])
+            params = _diag_params(text)
             n = max(1, int(levels_entry.get() or 6))
         except Exception as exc:
             report_error(exc)
             return
+        unit = "GHz" if units_var.get() else ""
 
         # reuse the reduction from the last Generate when the circuit is unchanged,
         # so diagonalizing costs only the matrix build + eigh (not a re-reduction)
@@ -792,24 +842,50 @@ def main():  # pragma: no cover - interactive
                 return summary_from_result(cached["result"], params, n_levels=n)
             return numerical_summary(text, params, n_levels=n)
 
-        run_async(work, lambda summ: _show_diag(summ, params, n),
+        run_async(work, lambda summ: _show_diag(summ, params, n, unit),
                   busy_text="diagonalizing…")
 
-    def _show_diag(summ, params, n):
+    def _show_diag(summ, params, n, unit=""):
+        import re as _re
         clear_error()
         last_diag["summary"] = summ
+        res = summ["result"]
         ev = summ["eigenenergies"]
+        u = f" {unit}" if unit else ""
         lines = ["Mode types:"]
         for flux, charge, kind in summ["modes"]:
             lines.append(f"  {flux} / {charge}: {kind}")
         lines.append("\nEigenenergies:")
-        lines += [f"  E_{i} = {e:.6g}" for i, e in enumerate(ev)]
+        lines += [f"  E_{i} = {e:.6g}{u}" for i, e in enumerate(ev)]
         if summ["transitions"]:
             lines.append("transitions above ground: "
-                         + ", ".join(f"{t:.5g}" for t in summ["transitions"]))
+                         + ", ".join(f"{t:.5g}{u}" for t in summ["transitions"]))
+        # exact charge matrix elements |<0|n|1>| for each mode's charge
+        me = []
+        for _flux, charge, _kind in summ["modes"]:
+            try:
+                M = res.matrix_elements(charge, params, n_levels=min(n, 4))
+                me.append(f"  |<0|{charge}|1>| = {abs(M[0, 1]):.4f}")
+            except Exception:
+                pass
+        if me:
+            lines.append("\nmatrix elements:")
+            lines += me
+        # sensitivity of f01 to any external bias (zero => sweet spot)
+        biases = [str(k) for k in params if _re.match(r"(phi_ext_|n_g_)", str(k))]
+        if biases:
+            lines.append("\nbias sensitivity (d f01/d bias):")
+            for bsym in biases:
+                try:
+                    df, _d2 = res.transition_sensitivity(bsym, params)
+                    tag = "   <- sweet spot" if abs(df) < 1e-3 else ""
+                    lines.append(f"  {bsym}: {df:+.4f}{u}/unit{tag}")
+                except Exception:
+                    pass
         report.delete("1.0", "end")
         report.insert("end", "\n".join(lines))
-        status.config(text="diagonalized", foreground="#0a7d2c")
+        status.config(text=f"diagonalized{(' (' + unit + ')') if unit else ''}",
+                      foreground="#0a7d2c")
 
         # popup figure: potential + wavefunctions (single mode) or a level diagram
         win = tk.Toplevel(root)
@@ -854,6 +930,57 @@ def main():  # pragma: no cover - interactive
         ttk.Button(bar, text="Export eigenenergies (CSV)…",
                    command=lambda: export_csv()).pack(side="right", padx=2, pady=6)
         pcanvas.draw()
+
+    def sweep_plot():
+        """Plot the spectrum vs the chosen parameter/bias over a range."""
+        import numpy as np
+        text = netlist.get("1.0", "end-1c")
+        try:
+            n = max(1, int(levels_entry.get() or 6))
+            base = _diag_params(text)
+            param = sweep_param.get().strip()
+            lo, hi = float(sweep_from.get()), float(sweep_to.get())
+            pts = max(2, int(sweep_pts.get() or 41))
+            res = _current_result(text)
+        except Exception as exc:
+            report_error(exc)
+            return
+        unit = "GHz" if units_var.get() else ""
+        vals = np.linspace(lo, hi, pts)
+        busy_on(f"sweeping {param}…")
+
+        def do():
+            win = tk.Toplevel(root)
+            win.title(f"fluxcharge — sweep {param}")
+            win.configure(bg=SURFACE)
+            f = Figure(figsize=(6.2, 4.4))
+            f.patch.set_facecolor(SURFACE)
+            ax = f.add_subplot(111)
+            try:
+                res.plot_spectrum(param, vals, base, n_levels=n, ax=ax)
+                if unit:
+                    ax.set_ylabel(f"energy ({unit})")
+            except Exception as exc:
+                busy_off()
+                win.destroy()
+                report_error(exc)
+                return
+            busy_off()
+            c = FigureCanvasTkAgg(f, master=win)
+            c.get_tk_widget().pack(fill="both", expand=True, side="top")
+
+            def save_sweep():
+                path = filedialog.asksaveasfilename(
+                    parent=win, defaultextension=".png",
+                    filetypes=[("PNG", "*.png"), ("PDF", "*.pdf"), ("SVG", "*.svg")])
+                if path:
+                    f.savefig(path, dpi=200, bbox_inches="tight")
+            ttk.Button(win, text="Save plot…", command=save_sweep).pack(
+                side="bottom", anchor="e", padx=6, pady=6)
+            c.draw()
+            status.config(text=f"swept {param} ({len(vals)} pts)", foreground="#0a7d2c")
+
+        root.after(30, do)
 
     # ---- copy / export actions ----
     def copy_h(fmt):
@@ -1000,6 +1127,26 @@ def main():  # pragma: no cover - interactive
     m_act.add_command(label="Dualize", command=dualize, accelerator=f"{_MOD}D")
     m_act.add_command(label="Diagonalize", command=diagonalize, accelerator=f"{_MOD}K")
     menubar.add_cascade(label="Actions", menu=m_act)
+
+    # Circuits menu: load a ready-made circuit from the library
+    def load_library(name):
+        from . import library
+        from .netlist import to_netlist
+        try:
+            ckt = library.CIRCUITS[name]()
+            netlist.delete("1.0", "end")
+            netlist.insert("1.0", to_netlist(ckt))
+            clear_error()
+            generate()
+        except Exception as exc:
+            report_error(exc)
+
+    m_circ = tk.Menu(menubar, tearoff=0)
+    from . import library as _lib
+    for _name in _lib.CIRCUITS:
+        m_circ.add_command(label=_name.replace("_", " ").title(),
+                           command=lambda n=_name: load_library(n))
+    menubar.add_cascade(label="Circuits", menu=m_circ)
 
     m_view = tk.Menu(menubar, tearoff=0)
     m_view.add_checkbutton(label="Energy units (E_C, E_L, n)",
