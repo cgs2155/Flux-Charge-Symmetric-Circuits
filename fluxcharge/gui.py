@@ -172,8 +172,11 @@ _DBG_PATH = os.path.expanduser("~/fluxcharge_gui.log")
 def _dbg(msg):
     """Append a timestamped diagnostic line to ~/fluxcharge_gui.log.
 
-    stderr is often invisible when the GUI is launched from a console script or
-    bundle, so we log to a file to debug the live app.  Never raises."""
+    Off by default; set ``FLUXCHARGE_DEBUG=1`` to enable.  stderr is often
+    invisible when the GUI is launched from a console script or bundle, so when
+    enabled we log to a file to debug the live app.  Never raises."""
+    if not os.environ.get("FLUXCHARGE_DEBUG"):
+        return
     try:
         import time
         with open(_DBG_PATH, "a") as fh:
@@ -240,9 +243,12 @@ def energy_units_form(H, commutators, capacitances, inductances):
 
 
 def main():  # pragma: no cover - interactive
+    import sys as _sys
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
     import tkinter.font as tkfont
+
+    _MOD = "⌘" if _sys.platform == "darwin" else "Ctrl+"   # ⌘ on macOS
     import matplotlib
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -371,8 +377,10 @@ def main():  # pragma: no cover - interactive
     def do_clear():
         netlist.delete("1.0", "end")
 
-    for txt, cmd in [("Load", do_load), ("Save", do_save), ("Example", do_example), ("Clear", do_clear)]:
-        ttk.Button(fb, text=txt, command=cmd).pack(side="left", padx=(0, 4))
+    for txt, cmd, acc in [("Load", do_load, f"{_MOD}O"), ("Save", do_save, f"{_MOD}S"),
+                          ("Example", do_example, None), ("Clear", do_clear, None)]:
+        label = f"{txt} ({acc})" if acc else txt
+        ttk.Button(fb, text=label, command=cmd).pack(side="left", padx=(0, 4))
     use_latex = tk.BooleanVar(value=False)
     ttk.Checkbutton(fb, text="LaTeX", variable=use_latex,
                     command=lambda: _rerender()).pack(side="right")
@@ -432,8 +440,6 @@ def main():  # pragma: no cover - interactive
             append_line(f"open   {g_open.get().strip()}")
     ttk.Button(b, text="set", command=add_gauge).grid(row=7, column=5, padx=(4, 0), sticky="ew")
 
-    import sys as _sys
-    _MOD = "\u2318" if _sys.platform == "darwin" else "Ctrl+"   # \u2318 on macOS
     gen_btn = ttk.Button(left, text=f"Generate  \u2192   ({_MOD}\u21a9 / F5)",
                          style="Accent.TButton", command=lambda: generate())
     gen_btn.pack(fill="x", pady=(12, 0))
@@ -505,12 +511,6 @@ def main():  # pragma: no cover - interactive
             progress.stop()
             progress.pack_forget()
             root.configure(cursor="")
-
-    def _log_raw_click(ev, name):
-        _dbg(f"raw click on {name!r}: state={ev.widget.state()} busy_n={busy_state['n']}")
-
-    for _b, _n in [(gen_btn, "Generate"), (dual_btn, "Dualize"), (diag_btn, "Diagonalize")]:
-        _b.bind("<ButtonRelease-1>", lambda e, nm=_n: _log_raw_click(e, nm), add="+")
 
     def run_async(work, on_success, busy_text="computing…"):
         """Run *work()* then *on_success(result)* on the main thread, off the
@@ -769,6 +769,10 @@ def main():  # pragma: no cover - interactive
         root.bind_all(seq, _key(dualize))
     for seq in ("<Command-k>", "<Control-k>"):
         root.bind_all(seq, _key(diagonalize))
+    for seq in ("<Command-o>", "<Control-o>"):
+        root.bind_all(seq, _key(do_load))
+    for seq in ("<Command-s>", "<Control-s>"):
+        root.bind_all(seq, _key(do_save))
     _dbg(f"main(): GUI built; python={__import__('sys').executable}")
 
     # Bring the window to the front and give it focus.  A terminal-launched
