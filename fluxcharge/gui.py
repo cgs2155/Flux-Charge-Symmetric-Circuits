@@ -583,6 +583,10 @@ def main():  # pragma: no cover - interactive
                              ha="center", va="center", fontsize=8, color=MUTED,
                              fontfamily="sans-serif")
         canvas.draw()
+        # force the Tk canvas to blit now (idle tasks only, so no event
+        # reentrancy); without this the redraw can lag on macOS and a click
+        # looks like it did nothing
+        root.update_idletasks()
 
     def _rerender():
         out = last["out"]
@@ -609,6 +613,15 @@ def main():  # pragma: no cover - interactive
     def generate():
         _dbg("generate() clicked")
         text = netlist.get("1.0", "end-1c")
+        if last["out"] is not None and last["text"] == text:
+            # circuit unchanged since the last Generate -- nothing to recompute;
+            # makes repeated clicks instant instead of piling up redundant work
+            import time
+            status.config(
+                text=f"✓ up to date: {last['out']['title'] or 'circuit'}"
+                     f"   ({time.strftime('%H:%M:%S')})", foreground="#0a7d2c")
+            _dbg("generate(): netlist unchanged; skipped recompute")
+            return
 
         def work():
             # pure-sympy reduction off the main thread; no matplotlib here
