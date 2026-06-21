@@ -224,8 +224,6 @@ def energy_units_form(H, commutators, capacitances, inductances):
 
 
 def main():  # pragma: no cover - interactive
-    import queue
-    import threading
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
     import tkinter.font as tkfont
@@ -490,38 +488,34 @@ def main():  # pragma: no cover - interactive
                 btn.state(["!disabled"])
 
     def run_async(work, on_success, busy_text="computing…"):
-        """Run *work()* (pure compute, no Tk/matplotlib) in a worker thread; call
-        *on_success(result)* on the main thread when done.  Keeps the event loop
-        free so the progress spinner animates and the window stays responsive."""
+        """Run *work()* then *on_success(result)* on the main thread, off the
+        click handler.
+
+        Tkinter on macOS (Aqua) must be serviced on the main thread, and running
+        a background worker thread alongside live UI events can wedge the event
+        loop so clicks stop registering.  So instead of a thread we show the busy
+        state, return from the click handler (which lets Tk paint it), and do the
+        work in a follow-up ``after`` callback.  The window is briefly busy while
+        the work runs, but the buttons always respond."""
         busy_on(busy_text)
-        box = {}
+        root.update_idletasks()   # paint the busy state before we block
 
-        def worker():
+        def do():
             try:
-                box["ok"] = work()
-            except Exception as exc:  # marshalled back to the main thread
-                box["err"] = exc
-
-        th = threading.Thread(target=worker, daemon=True)
-        th.start()
-
-        def check():
-            if th.is_alive():
-                root.after(60, check)
-                return
-            busy_off()
-            if "err" in box:
-                exc = box["err"]
+                result = work()
+            except Exception as exc:
+                busy_off()
                 status.config(text=f"error: {exc}", foreground="#b00020")
                 messagebox.showerror("fluxcharge", str(exc))
                 return
+            busy_off()
             try:
-                on_success(box["ok"])
+                on_success(result)
             except Exception as exc:
                 status.config(text=f"error: {exc}", foreground="#b00020")
                 messagebox.showerror("fluxcharge", str(exc))
 
-        root.after(60, check)
+        root.after(30, do)
 
     def _draw_panels(out):
         ax_sch.clear(); ax_sch.axis("off")
@@ -696,10 +690,10 @@ def main():  # pragma: no cover - interactive
         pcanvas.get_tk_widget().pack(fill="both", expand=True)
         pcanvas.draw()
 
-    # Pre-warm matplotlib's mathtext font cache off the main thread.  The first
-    # equation render builds this cache and can take several seconds; doing it
-    # here (with a non-Tk Agg canvas, so it is thread-safe) means the first real
-    # render is fast instead of freezing the window right after the first click.
+    # Pre-warm matplotlib's mathtext font cache shortly after the window is up.
+    # The first equation render builds this cache and can take a few seconds; we
+    # warm it on the main thread (no threads -- see run_async) so the first real
+    # render is fast.  It runs once, after startup, off a brief ``after`` tick.
     def _prewarm_fonts():
         try:
             from matplotlib.figure import Figure
@@ -712,8 +706,7 @@ def main():  # pragma: no cover - interactive
         except Exception:
             pass
 
-    threading.Thread(target=_prewarm_fonts, daemon=True).start()
-
+    root.after(400, _prewarm_fonts)
     generate()
     root.mainloop()
 
