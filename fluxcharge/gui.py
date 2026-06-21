@@ -432,10 +432,12 @@ def main():  # pragma: no cover - interactive
             append_line(f"open   {g_open.get().strip()}")
     ttk.Button(b, text="set", command=add_gauge).grid(row=7, column=5, padx=(4, 0), sticky="ew")
 
-    gen_btn = ttk.Button(left, text="Generate  \u2192", style="Accent.TButton",
-                         command=lambda: generate())
+    import sys as _sys
+    _MOD = "\u2318" if _sys.platform == "darwin" else "Ctrl+"   # \u2318 on macOS
+    gen_btn = ttk.Button(left, text=f"Generate  \u2192   ({_MOD}\u21a9 / F5)",
+                         style="Accent.TButton", command=lambda: generate())
     gen_btn.pack(fill="x", pady=(12, 0))
-    dual_btn = ttk.Button(left, text="Dualize  \u21c4   (LCG dual: C\u2194L, JJ\u2194QPS, G\u2192\u22121/G)",
+    dual_btn = ttk.Button(left, text=f"Dualize  \u21c4   ({_MOD}D)",
                           command=lambda: dualize())
     dual_btn.pack(fill="x", pady=(6, 0))
 
@@ -452,7 +454,8 @@ def main():  # pragma: no cover - interactive
     levels_entry = ttk.Entry(num_card, width=5)
     levels_entry.grid(row=2, column=1, sticky="w", pady=(4, 0))
     levels_entry.insert(0, "6")
-    diag_btn = ttk.Button(num_card, text="Diagonalize", command=lambda: diagonalize())
+    diag_btn = ttk.Button(num_card, text=f"Diagonalize  ({_MOD}K)",
+                          command=lambda: diagonalize())
     diag_btn.grid(row=1, column=2, rowspan=2, sticky="ns", padx=(4, 0))
 
     # ---- right: outputs ----
@@ -754,13 +757,32 @@ def main():  # pragma: no cover - interactive
         except Exception:
             pass
 
+    # Keyboard shortcuts -- robust even when the OS is flaky about delivering
+    # mouse clicks to a terminal-launched (non-bundled) app on macOS.  Bound on
+    # both Command (macOS) and Control (Windows/Linux) so the app is portable.
+    def _key(fn):
+        return lambda event=None: (fn(), "break")[1]
+    for seq in ("<Command-Return>", "<Control-Return>", "<F5>",
+                "<Command-g>", "<Control-g>"):
+        root.bind_all(seq, _key(generate))
+    for seq in ("<Command-d>", "<Control-d>"):
+        root.bind_all(seq, _key(dualize))
+    for seq in ("<Command-k>", "<Control-k>"):
+        root.bind_all(seq, _key(diagonalize))
     _dbg(f"main(): GUI built; python={__import__('sys').executable}")
-    # bring the window to the front and give it keyboard/mouse focus, so the
-    # first click activates a button instead of just focusing the window (macOS)
-    root.lift()
-    root.attributes("-topmost", True)
-    root.after(200, lambda: root.attributes("-topmost", False))
-    root.after(50, root.focus_force)
+
+    # Bring the window to the front and give it focus.  A terminal-launched
+    # (non-bundled) Python app does not always become the macOS foreground app,
+    # so clicks can be dropped until it is activated; focus_force + lift help,
+    # and the keyboard shortcuts above are the reliable fallback.
+    def _activate():
+        try:
+            root.lift()
+            root.focus_force()
+            netlist.focus_set()   # give the text box keyboard focus
+        except Exception:
+            pass
+    root.after(80, _activate)
     root.after(400, _prewarm_fonts)
     # run the first generate inside the event loop (not before mainloop, which
     # can leave the macOS app unresponsive to clicks)
