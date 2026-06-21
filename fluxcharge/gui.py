@@ -166,6 +166,22 @@ def _operator_latex(sym):
     return out
 
 
+_DBG_PATH = os.path.expanduser("~/fluxcharge_gui.log")
+
+
+def _dbg(msg):
+    """Append a timestamped diagnostic line to ~/fluxcharge_gui.log.
+
+    stderr is often invisible when the GUI is launched from a console script or
+    bundle, so we log to a file to debug the live app.  Never raises."""
+    try:
+        import time
+        with open(_DBG_PATH, "a") as fh:
+            fh.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
+
+
 def _hamiltonian_latex(expr, operators):
     """LaTeX of *expr* with each operator symbol hatted (parameters left as
     ordinary c-numbers)."""
@@ -498,23 +514,32 @@ def main():  # pragma: no cover - interactive
         work in a follow-up ``after`` callback.  The window is briefly busy while
         the work runs, but the buttons always respond."""
         busy_on(busy_text)
-        root.update_idletasks()   # paint the busy state before we block
+        _dbg(f"run_async: busy_on ({busy_text}); scheduling work")
 
         def do():
+            import traceback
+            _dbg("run_async.do: work() start")
             try:
                 result = work()
             except Exception as exc:
+                _dbg("run_async.do: work() RAISED\n" + traceback.format_exc())
                 busy_off()
                 status.config(text=f"error: {exc}", foreground="#b00020")
                 messagebox.showerror("fluxcharge", str(exc))
                 return
+            _dbg("run_async.do: work() done; busy_off; on_success")
             busy_off()
             try:
                 on_success(result)
+                _dbg("run_async.do: on_success done")
             except Exception as exc:
+                _dbg("run_async.do: on_success RAISED\n" + traceback.format_exc())
                 status.config(text=f"error: {exc}", foreground="#b00020")
                 messagebox.showerror("fluxcharge", str(exc))
 
+        # let the busy state paint (the 30 ms tick is enough), then run on the
+        # main thread.  No update_idletasks() here -- calling it before mainloop
+        # has started can wedge event handling on macOS.
         root.after(30, do)
 
     def _draw_panels(out):
@@ -576,6 +601,7 @@ def main():  # pragma: no cover - interactive
                 status.config(text=f"render error: {exc}", foreground="#b00020")
 
     def generate():
+        _dbg("generate() clicked")
         text = netlist.get("1.0", "end-1c")
 
         def work():
@@ -706,8 +732,11 @@ def main():  # pragma: no cover - interactive
         except Exception:
             pass
 
+    _dbg(f"main(): GUI built; python={__import__('sys').executable}")
     root.after(400, _prewarm_fonts)
-    generate()
+    # run the first generate inside the event loop (not before mainloop, which
+    # can leave the macOS app unresponsive to clicks)
+    root.after(100, generate)
     root.mainloop()
 
 
