@@ -485,9 +485,11 @@ def main():  # pragma: no cover - interactive
     action_buttons = [gen_btn, dual_btn, diag_btn]
 
     def busy_on(text):
+        # NOTE: we deliberately do NOT disable the action buttons here.  On macOS
+        # (Aqua) a ttk button left in the "disabled" state has been observed not
+        # to recover its clickability after "!disabled", which made Generate stop
+        # responding.  The spinner + cursor + status are the activity indicator.
         busy_state["n"] += 1
-        for btn in action_buttons:
-            btn.state(["disabled"])
         root.configure(cursor="watch")
         if not progress.winfo_ismapped():
             progress.pack(side="right", padx=10, pady=4)
@@ -500,8 +502,12 @@ def main():  # pragma: no cover - interactive
             progress.stop()
             progress.pack_forget()
             root.configure(cursor="")
-            for btn in action_buttons:
-                btn.state(["!disabled"])
+
+    def _log_raw_click(ev, name):
+        _dbg(f"raw click on {name!r}: state={ev.widget.state()} busy_n={busy_state['n']}")
+
+    for _b, _n in [(gen_btn, "Generate"), (dual_btn, "Dualize"), (diag_btn, "Diagonalize")]:
+        _b.bind("<ButtonRelease-1>", lambda e, nm=_n: _log_raw_click(e, nm), add="+")
 
     def run_async(work, on_success, busy_text="computing…"):
         """Run *work()* then *on_success(result)* on the main thread, off the
