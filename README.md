@@ -126,9 +126,16 @@ the definitions shown beneath. Rendering uses matplotlib's mathtext by default;
 tick **LaTeX (system TeX)** to render through a real LaTeX installation if you
 have one (it falls back to mathtext automatically if not). The UI uses Tkinter, which ships with standard
 Python on Windows and macOS; on Linux install the system `python3-tk` package.
-To produce a single double-clickable executable, freeze it with
-[PyInstaller](https://pyinstaller.org):
-`pyinstaller --onefile -n fluxcharge-gui -c fluxcharge/gui.py`.
+All actions also have keyboard shortcuts: **Generate** (`⌘↩` / `F5`), **Dualize**
+(`⌘D`), **Diagonalize** (`⌘K`), **Load** (`⌘O`), **Save** (`⌘S`) — `Ctrl` instead
+of `⌘` on Windows/Linux. To produce a double-clickable app, freeze it with
+[PyInstaller](https://pyinstaller.org) using the bundled spec (run from the repo
+root): `pip install pyinstaller` then `pyinstaller fluxcharge-gui.spec --noconfirm`,
+which writes `dist/fluxcharge-gui.app` (macOS) or `dist/fluxcharge-gui/`
+(Windows/Linux). Running it as a bundled app — rather than the script from a
+terminal — makes it a proper foreground GUI app, so mouse clicks are delivered
+reliably on macOS. Set `FLUXCHARGE_DEBUG=1` to log GUI actions to
+`~/fluxcharge_gui.log` for troubleshooting.
 
 The **Dualize** button replaces the circuit with its LCG dual and regenerates;
 press it again to return.
