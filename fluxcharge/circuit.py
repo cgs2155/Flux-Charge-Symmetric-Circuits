@@ -475,6 +475,16 @@ class Circuit:
             syms |= val.free_symbols
         return syms
 
+    def natural_params(self, physical):
+        """Convert physical element values (fF / nH / GHz) into the numeric
+        parameters for diagonalization, so eigenvalues come out in GHz.
+
+        ``physical`` maps each parameter symbol to a value with units, e.g.
+        ``{"C": "70fF", "E_J": "15GHz"}``.  See :func:`fluxcharge.units.to_natural`.
+        """
+        from .units import to_natural
+        return to_natural(self, physical)
+
     def summary(self) -> str:
         lines = [
             f"Circuit: {len(self.vertices)} vertices, "

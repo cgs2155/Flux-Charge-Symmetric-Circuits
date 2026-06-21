@@ -580,6 +580,37 @@ def test_gui_energy_units_form():
                                   - EJ * sp.cos(phi))) == 0
 
 
+def test_physical_units_transmon():
+    """Physical units: C in fF + E_J in GHz give the transmon frequency in GHz,
+    matching sqrt(8 E_J E_C) - E_C, with anharmonicity near -E_C."""
+    _require_numpy()
+    import numpy as np
+    import math
+    from fluxcharge import charging_energy_GHz
+    ckt = Circuit()
+    ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+    ckt.add_capacitor("e2", "v1", "v2", C="C")
+    ckt.add_loop("f1", ["+e1", "-e2"])
+    res = ckt.hamiltonian(ground="v1")
+    p = ckt.natural_params({"C": "70fF", "E_J": "15GHz"})
+    ev = res.eigenenergies(p, n_levels=3, cutoffs={"q_f1": 81})
+    E_C = charging_energy_GHz(70.0)
+    f01 = ev[1] - ev[0]
+    assert abs(f01 - (math.sqrt(8 * 15 * E_C) - E_C)) < 0.05   # GHz
+    anharm = (ev[2] - ev[1]) - (ev[1] - ev[0])
+    assert abs(anharm + E_C) < 0.05                            # anharm ~ -E_C
+    assert abs(charging_energy_GHz(70.0) - 19.37 / 70.0) < 1e-3
+
+
+def test_units_parse_quantity():
+    from fluxcharge.units import parse_quantity
+    assert parse_quantity("70fF") == (70.0, "C")
+    assert parse_quantity("150nH") == (150.0, "L")
+    assert parse_quantity("15GHz") == (15.0, "F")
+    assert parse_quantity((1.0, "uH")) == (1000.0, "L")     # -> nH
+    assert parse_quantity(0.5) == (0.5, None)
+
+
 def test_offset_charge_transmon():
     """An offset charge on the island gives H = (q - n_g)^2/2C - E_J cos(phi)."""
     ckt = Circuit()

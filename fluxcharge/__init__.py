@@ -58,6 +58,7 @@ from .plotting import (
     plot_spectrum,
     plot_potential_wavefunctions,
 )
+from .units import to_natural, charging_energy_GHz, inductive_energy_GHz
 
 __all__ = [
     "Circuit",
@@ -89,6 +90,9 @@ __all__ = [
     "plot_energy_levels",
     "plot_spectrum",
     "plot_potential_wavefunctions",
+    "to_natural",
+    "charging_energy_GHz",
+    "inductive_energy_GHz",
 ]
 
 __version__ = "0.1.0"
