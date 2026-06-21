@@ -640,6 +640,9 @@ def main():  # pragma: no cover - interactive
             report.delete("1.0", "end")
             report.insert("end", f"H = {out['H']}\n\nLagrangian:\n"
                           f"{out['lagrangian']}\n\n{out['report']}")
+            import time
+            status.config(text=f"✓ generated: {out['title'] or 'circuit'}"
+                          f"   ({time.strftime('%H:%M:%S')})", foreground="#0a7d2c")
 
         run_async(work, done, busy_text="reducing circuit…")
 
@@ -739,6 +742,12 @@ def main():  # pragma: no cover - interactive
             pass
 
     _dbg(f"main(): GUI built; python={__import__('sys').executable}")
+    # bring the window to the front and give it keyboard/mouse focus, so the
+    # first click activates a button instead of just focusing the window (macOS)
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after(200, lambda: root.attributes("-topmost", False))
+    root.after(50, root.focus_force)
     root.after(400, _prewarm_fonts)
     # run the first generate inside the event loop (not before mainloop, which
     # can leave the macOS app unresponsive to clicks)
