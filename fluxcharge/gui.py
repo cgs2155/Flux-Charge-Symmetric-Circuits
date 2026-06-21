@@ -589,7 +589,10 @@ def main():  # pragma: no cover - interactive
             return compute(text, canonical=True, draw=False)
 
         def done(out):
-            # the schematic uses schemdraw/matplotlib, so draw it on the main thread
+            # the schematic uses schemdraw/matplotlib, so it must be drawn on the
+            # main thread; show feedback because this part can briefly block
+            status.config(text="rendering…", foreground=MUTED)
+            root.update_idletasks()
             try:
                 fd, p = tempfile.mkstemp(suffix=".png", prefix="fluxcharge_")
                 os.close(fd)
@@ -597,6 +600,14 @@ def main():  # pragma: no cover - interactive
                 out["schematic"] = p
             except Exception:
                 out["schematic"] = None
+            finally:
+                # schemdraw draws via pyplot; close its stray figures so they
+                # don't accumulate over repeated Generates
+                try:
+                    import matplotlib.pyplot as plt
+                    plt.close("all")
+                except Exception:
+                    pass
             last["out"] = out
             last["text"] = text
             _rerender()
@@ -684,6 +695,24 @@ def main():  # pragma: no cover - interactive
         pcanvas = FigureCanvasTkAgg(pfig, master=win)
         pcanvas.get_tk_widget().pack(fill="both", expand=True)
         pcanvas.draw()
+
+    # Pre-warm matplotlib's mathtext font cache off the main thread.  The first
+    # equation render builds this cache and can take several seconds; doing it
+    # here (with a non-Tk Agg canvas, so it is thread-safe) means the first real
+    # render is fast instead of freezing the window right after the first click.
+    def _prewarm_fonts():
+        try:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            f = Figure()
+            FigureCanvasAgg(f)
+            f.add_axes([0, 0, 1, 1]).text(
+                0.5, 0.5, r"$\hat{H}=\frac{\hat{q}^2}{2C}-E_J\cos\hat{\phi}$")
+            f.canvas.draw()
+        except Exception:
+            pass
+
+    threading.Thread(target=_prewarm_fonts, daemon=True).start()
 
     generate()
     root.mainloop()
