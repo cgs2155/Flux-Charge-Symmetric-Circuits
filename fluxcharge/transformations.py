@@ -26,6 +26,8 @@ spectrum.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+
 import sympy as sp
 
 from .circuit import Circuit
@@ -34,13 +36,59 @@ from .elements import (
 )
 
 
+def _completed_faces(circuit):
+    """Declared faces, plus the outer face if it was left out.
+
+    Dualization needs the *complete* planar embedding: every edge must border
+    exactly two faces (one ``+1``, one ``-1``).  A netlist often declares only
+    the inner faces (the transmon, e.g., declares one loop), so the outer face
+    is missing and some edges border just one face.  In a planar embedding the
+    signed face boundaries sum to zero on every edge, so the outer face is
+    exactly ``-(sum of the declared faces)``; adding it is what makes every edge
+    border two faces.  Because each declared face satisfies ``B*A = 0``, so does
+    their (negated) sum, so the synthesized outer face is automatically a valid
+    cycle.  Returns an ``OrderedDict`` ``{loop: [(sign, edge), ...]}``.
+    """
+    faces = OrderedDict((l, list(ents)) for l, ents in circuit._loops.items())
+
+    residual = {e: 0 for e in circuit.edges}
+    for ents in faces.values():
+        for sign, ename in ents:
+            residual[ename] += sign
+    missing = {e: -s for e, s in residual.items() if s != 0}
+    if missing:
+        name = "outer"
+        i = 0
+        while name in faces:
+            i += 1
+            name = f"outer{i}"
+        faces[name] = [(sign, e) for e, sign in missing.items()]
+
+    # verify the embedding is now complete: each edge on exactly one +1 and one -1
+    for ename in circuit.edges:
+        plus = sum(1 for ents in faces.values() for s, e in ents if e == ename and s == 1)
+        minus = sum(1 for ents in faces.values() for s, e in ents if e == ename and s == -1)
+        if plus != 1 or minus != 1:
+            raise ValueError(
+                f"cannot complete the planar embedding for dualization: edge "
+                f"{ename!r} borders {plus} face(s) with +1 and {minus} with -1 "
+                "(need exactly one each). Declare the faces of a planar embedding.")
+    return faces
+
+
 def dual(circuit: Circuit) -> Circuit:
-    """Return the LCG dual of *circuit* (a new :class:`Circuit`)."""
+    """Return the LCG dual of *circuit* (a new :class:`Circuit`).
+
+    If the netlist declared only the inner faces (so the outer face is implicit,
+    as for the transmon), the outer face is completed automatically; any circuit
+    that reduces to a Hamiltonian therefore also dualizes.
+    """
     circuit.validate()
 
-    # B[l, e]: which faces each edge borders, with sign
+    # B[l, e]: which faces each edge borders, with sign (outer face completed)
+    faces = _completed_faces(circuit)
     edge_faces = {e: {} for e in circuit.edges}
-    for loop, entries in circuit._loops.items():
+    for loop, entries in faces.items():
         for sign, ename in entries:
             edge_faces[ename][loop] = sign
 

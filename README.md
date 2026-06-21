@@ -136,8 +136,14 @@ The package implements the manuscript's **LCG duality transform** (Sec. "Circuit
 Duality"): it exchanges flux and charge, so `A -> Bᵀ`, `B -> Aᵀ` (vertices become
 faces and faces become vertices), `C <-> L` and `JJ <-> QPS` with each scalar
 value preserved, and every gyration ratio `G -> -1/G`. The result is a new
-circuit whose Hamiltonian is unitarily related to the original, and the map is
-an involution (up to a global edge-orientation reversal).
+circuit whose Hamiltonian is unitarily related to the original (so it has the
+same spectrum), and the map is an involution (up to a global edge-orientation
+reversal).
+
+Dualization needs the full planar embedding (every edge bordering two faces). If
+a netlist declares only the inner faces -- as the transmon does, with its single
+loop -- the implicit outer face is **completed automatically**, so any circuit
+that reduces to a Hamiltonian can also be dualized.
 
 ```python
 from fluxcharge import from_netlist, dual, to_netlist

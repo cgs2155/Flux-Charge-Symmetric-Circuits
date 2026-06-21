@@ -462,6 +462,53 @@ def test_numerics_circulator_runs_and_converges():
     assert np.allclose(ev60, ev90, atol=1e-3)
 
 
+def test_dual_completes_outer_face_transmon():
+    """A circuit that declares only its inner face(s) -- e.g. the transmon, with
+    one loop -- still dualizes: the missing outer face is completed
+    automatically. The dual reduces to a Hamiltonian and (being a unitary map)
+    shares the original's spectrum; dualizing twice returns to it."""
+    from fluxcharge import dual
+
+    t = Circuit()
+    t.add_josephson("e1", "v1", "v2", EJ="E_J")
+    t.add_capacitor("e2", "v1", "v2", C="C")
+    t.add_loop("f1", ["+e1", "-e2"])          # only the inner face declared
+
+    d = dual(t)
+    assert set(d.vertices) == {"f1", "outer"}   # outer face synthesized
+    # JJ -> QPS, C -> L
+    kinds = {type(el).__name__ for el in d._elements}
+    assert "QuantumPhaseSlip" in kinds and "Inductor" in kinds
+    dr = d.hamiltonian(strict=False, canonical=True)
+    assert dr.complete
+
+    _require_numpy()
+    import numpy as np
+    ev_t = t.hamiltonian(ground="v1").eigenenergies(
+        {"E_J": 10.0, "C": 1.0}, n_levels=6, cutoffs={"q_f1": 81})
+    ev_d = np.sort(dr.eigenenergies({"E_J": 10.0, "C": 1.0}, n_levels=6))
+    assert np.allclose(ev_t, ev_d, atol=1e-6)   # duality preserves the spectrum
+    # involution
+    assert {type(el).__name__ for el in dual(d)._elements} == \
+        {type(el).__name__ for el in t._elements}
+
+
+def test_dual_of_every_example_netlist():
+    """Every shipped example circuit dualizes and the dual reduces completely."""
+    from fluxcharge import from_netlist, dual
+    import os
+    exdir = os.path.join(os.path.dirname(__file__), os.pardir, "examples")
+    for name in ["transmon.txt", "fluxonium.txt", "qps_inductor.txt",
+                 "lc_oscillator.txt", "circulator.txt"]:
+        path = os.path.join(exdir, name)
+        if not os.path.exists(path):
+            continue
+        with open(path) as fh:
+            c = from_netlist(fh.read())
+        d = dual(c)
+        assert d.hamiltonian(strict=False, canonical=True).complete, name
+
+
 def test_gui_numerical_summary():
     """The headless GUI numerics core classifies and diagonalizes a transmon."""
     _require_numpy()
