@@ -580,6 +580,50 @@ def test_gui_energy_units_form():
                                   - EJ * sp.cos(phi))) == 0
 
 
+def test_matrix_elements_and_t1():
+    """Charge matrix elements of the transmon, and the golden-rule T1 identity."""
+    _require_numpy()
+    import numpy as np
+    ckt = Circuit()
+    ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+    ckt.add_capacitor("e2", "v1", "v2", C="C")
+    ckt.add_loop("f1", ["+e1", "-e2"])
+    res = ckt.hamiltonian(ground="v1")
+    p = ckt.natural_params({"C": "70fF", "E_J": "15GHz"})
+    M = res.matrix_elements("q_f1", p, n_levels=4, cutoffs={"q_f1": 81})
+    assert M.shape == (4, 4)
+    assert abs(M[0, 0]) < 1e-9                 # no diagonal charge element (parity)
+    assert abs(M[0, 1]) > 0.5                  # nonzero 0<->1 charge element
+    assert np.allclose(M, M.conj().T, atol=1e-9)   # Hermitian
+    # golden rule with flat S: rate = |<0|n|1>|^2 (S(w)+S(-w)) = 2|<0|n|1>|^2
+    _, rate = res.t1(p, "q_f1", lambda w: 1.0, cutoffs={"q_f1": 81})
+    assert abs(rate - 2 * abs(M[0, 1]) ** 2) < 1e-6
+
+
+def test_flux_sweet_spot_sensitivity():
+    """The 0->1 transition is first-order insensitive to flux at the fluxonium
+    sweet spot (phi_ext = pi) and sensitive away from it."""
+    _require_numpy()
+    import math
+    ckt = Circuit()
+    ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+    ckt.add_inductor("e2", "v1", "v2", L="L")
+    ckt.add_capacitor("e3", "v1", "v2", C="C")
+    ckt.add_loop("f1", ["+e1", "-e2"]); ckt.add_loop("f2", ["+e2", "-e3"])
+    ckt.add_loop("f3", ["-e1", "+e3"])
+    ckt.set_flux_bias("f1")
+    res = ckt.hamiltonian(ground="v1", open_loops="f3")
+    base = ckt.natural_params({"E_J": "4GHz", "C": "1GHz", "L": "1GHz"})
+    at_sweet = dict(base); at_sweet["phi_ext_f1"] = math.pi
+    df_s, d2f_s = res.transition_sensitivity("phi_ext_f1", at_sweet,
+                                             cutoffs={"phi_v2": 60})
+    away = dict(base); away["phi_ext_f1"] = 0.3
+    df_a, _ = res.transition_sensitivity("phi_ext_f1", away, cutoffs={"phi_v2": 60})
+    assert abs(df_s) < 1e-3            # sweet spot: first-order insensitive
+    assert abs(df_a) > 0.02           # away: sensitive
+    assert abs(d2f_s) > 1.0           # curvature dominates at the sweet spot
+
+
 def test_physical_units_transmon():
     """Physical units: C in fF + E_J in GHz give the transmon frequency in GHz,
     matching sqrt(8 E_J E_C) - E_C, with anharmonicity near -E_C."""

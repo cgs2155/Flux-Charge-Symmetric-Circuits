@@ -59,6 +59,13 @@ from .plotting import (
     plot_potential_wavefunctions,
 )
 from .units import to_natural, charging_energy_GHz, inductive_energy_GHz
+from .coherence import (
+    matrix_elements,
+    operator_matrix,
+    transition_sensitivity,
+    t1,
+    dephasing_1_over_f,
+)
 
 __all__ = [
     "Circuit",
@@ -93,6 +100,11 @@ __all__ = [
     "to_natural",
     "charging_energy_GHz",
     "inductive_energy_GHz",
+    "matrix_elements",
+    "operator_matrix",
+    "transition_sensitivity",
+    "t1",
+    "dephasing_1_over_f",
 ]
 
 __version__ = "0.1.0"

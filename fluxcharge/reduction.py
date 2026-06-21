@@ -269,6 +269,30 @@ class ReductionResult:
         from .plotting import plot_potential_wavefunctions
         return plot_potential_wavefunctions(self, params, **kw)
 
+    def matrix_elements(self, coordinate, params=None, n_levels=6, **kw):
+        """Matrix ``<i|coordinate|j>`` of a charge/flux operator; see
+        :func:`fluxcharge.coherence.matrix_elements`."""
+        from .coherence import matrix_elements
+        return matrix_elements(self, coordinate, params, n_levels, **kw)
+
+    def transition_sensitivity(self, bias, params, levels=(0, 1), **kw):
+        """``d f_ij/d(bias)`` and its second derivative; see
+        :func:`fluxcharge.coherence.transition_sensitivity`."""
+        from .coherence import transition_sensitivity
+        return transition_sensitivity(self, bias, params, levels=levels, **kw)
+
+    def t1(self, params, noise_operator, spectral_density, **kw):
+        """Depolarization time from Fermi's golden rule; see
+        :func:`fluxcharge.coherence.t1`."""
+        from .coherence import t1
+        return t1(self, params, noise_operator, spectral_density, **kw)
+
+    def dephasing_1_over_f(self, bias, params, noise_amplitude, **kw):
+        """1/f pure-dephasing rate from a bias's sensitivity; see
+        :func:`fluxcharge.coherence.dephasing_1_over_f`."""
+        from .coherence import dephasing_1_over_f
+        return dephasing_1_over_f(self, bias, params, noise_amplitude, **kw)
+
     def compact_coordinates(self):
         """Surviving coordinates that appear inside a cosine of ``H`` -- the
         candidates for a periodic (``S^1``) identification, for which the naive
