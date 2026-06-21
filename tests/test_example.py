@@ -580,6 +580,72 @@ def test_gui_energy_units_form():
                                   - EJ * sp.cos(phi))) == 0
 
 
+def test_offset_charge_transmon():
+    """An offset charge on the island gives H = (q - n_g)^2/2C - E_J cos(phi)."""
+    ckt = Circuit()
+    ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+    ckt.add_capacitor("e2", "v1", "v2", C="C")
+    ckt.add_loop("f1", ["+e1", "-e2"])
+    ng = ckt.set_offset_charge("v2")
+    res = ckt.hamiltonian(ground="v1", canonical=True)
+    C, EJ = sp.Symbol("C"), sp.Symbol("E_J")
+    phi, q = sp.Symbol("phi_v2"), sp.Symbol("q_f1")
+    assert sp.simplify(res.H - ((q - ng) ** 2 / (2 * C) - EJ * sp.cos(phi))) == 0
+    assert ng in ckt.parameters
+
+
+def test_external_flux_fluxonium():
+    """An external flux through the loop is 2*pi-periodic with the half-flux
+    sweet spot at pi (the symbol equals the physical loop flux)."""
+    _require_numpy()
+    import numpy as np
+    ckt = Circuit()
+    ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+    ckt.add_inductor("e2", "v1", "v2", L="L")
+    ckt.add_capacitor("e3", "v1", "v2", C="C")
+    ckt.add_loop("f1", ["+e1", "-e2"]); ckt.add_loop("f2", ["+e2", "-e3"])
+    ckt.add_loop("f3", ["-e1", "+e3"])
+    px = ckt.set_flux_bias("f1")
+    res = ckt.hamiltonian(ground="v1", open_loops="f3", canonical=True)
+
+    def e01(val):
+        ev = res.eigenenergies({"E_J": 4.0, "L": 1.0, "C": 1.0, str(px): val},
+                               n_levels=2, cutoffs={"phi_v2": 60})
+        return ev[1] - ev[0]
+    import math
+    assert abs(e01(0.0) - e01(2 * math.pi)) < 1e-3      # period 2*pi
+    assert e01(math.pi) < 0.05                            # sweet-spot gap collapse
+    assert e01(0.0) > 1.0                                 # away from the sweet spot
+
+
+def test_bias_netlist_round_trip():
+    """flux / offset directives parse and round-trip through to_netlist."""
+    from fluxcharge import from_netlist, to_netlist
+    text = ("J e1 v1 v2 E_J\nL e2 v1 v2 L\nC e3 v1 v2 C\n"
+            "loop f1 +e1 -e2\nloop f2 +e2 -e3\nloop f3 -e1 +e3\n"
+            "ground v1\nopen f3\nflux f1 phi_ext\noffset v2 n_g\n")
+    ckt = from_netlist(text)
+    assert "f1" in ckt._flux_bias and "v2" in ckt._offset_charge
+    rt = from_netlist(to_netlist(ckt))
+    assert str(rt._flux_bias["f1"]) == "phi_ext"
+    assert str(rt._offset_charge["v2"]) == "n_g"
+
+
+def test_dual_carries_bias():
+    """Under the LCG dual, an offset charge on a node becomes an external flux
+    through the dual loop (and vice versa)."""
+    from fluxcharge import dual
+    t = Circuit()
+    t.add_josephson("e1", "v1", "v2", EJ="E_J")
+    t.add_capacitor("e2", "v1", "v2", C="C")
+    t.add_loop("f1", ["+e1", "-e2"])
+    t.set_offset_charge("v2", "n_g")
+    d = dual(t)
+    # node v2 -> dual loop v2 carries the flux bias
+    assert "v2" in d._flux_bias and str(d._flux_bias["v2"]) == "n_g"
+    assert not d._offset_charge
+
+
 def test_gui_qol_helpers(tmp_path, monkeypatch):
     """Clipboard text, CSV export, error-line parsing and session round-trip."""
     from fluxcharge.gui import (compute, hamiltonian_clipboard, eigenenergies_csv,

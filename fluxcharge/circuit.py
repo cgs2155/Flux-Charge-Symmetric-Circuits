@@ -54,6 +54,9 @@ class Circuit:
         self._vertices: "OrderedDict[str, None]" = OrderedDict()
         self._loops: "OrderedDict[str, List[Tuple[int, str]]]" = OrderedDict()
         self._gyrator_pairs: List[Tuple[str, str, sp.Expr]] = []
+        # external biases: constant Noether offsets (see set_flux_bias / set_offset_charge)
+        self._flux_bias: "OrderedDict[str, sp.Expr]" = OrderedDict()      # loop -> Phi_ext
+        self._offset_charge: "OrderedDict[str, sp.Expr]" = OrderedDict()  # node -> n_g
 
     # ------------------------------------------------------------------
     # construction
@@ -118,6 +121,39 @@ class Circuit:
                 raise ValueError(f"loop {name!r} references unknown edge {ename!r}")
             entries.append((sign, ename))
         self._loops[name] = entries
+
+    # ------------------------------------------------------------------
+    # external biases (nonzero Noether constants of the manuscript)
+    # ------------------------------------------------------------------
+    def set_flux_bias(self, loop, value=None):
+        """Thread an external flux through *loop* (a face).
+
+        This is the loop's nonzero Noether constant: the branch fluxes around
+        the loop now sum to the external flux instead of zero.  *value* is a
+        symbol, number or string; if omitted a symbol ``phi_ext_<loop>`` is
+        used.  The symbol equals the physical loop flux (period ``2*pi``; a
+        fluxonium loop's sweet spot is at ``pi``).  Returns the symbol/value.
+        """
+        if loop not in self._loops:
+            raise ValueError(f"unknown loop {loop!r}")
+        val = sp.Symbol(f"phi_ext_{loop}") if value is None else sp.sympify(value)
+        self._flux_bias[loop] = val
+        return val
+
+    def set_offset_charge(self, node, value=None):
+        """Put an external (gate/offset) charge on *node* -- the LCG dual of an
+        external loop flux.
+
+        *value* is a symbol, number or string; if omitted a symbol
+        ``n_g_<node>`` is used.  It enters as ``(n - n_g)`` in the node's
+        charging energy (period ``1`` in Cooper-pair number).  Returns the
+        symbol/value.
+        """
+        if node not in self._vertices:
+            raise ValueError(f"unknown node {node!r}")
+        val = sp.Symbol(f"n_g_{node}") if value is None else sp.sympify(value)
+        self._offset_charge[node] = val
+        return val
 
     # ------------------------------------------------------------------
     # index helpers
@@ -279,15 +315,45 @@ class Circuit:
     # Lagrangian and energy
     # ------------------------------------------------------------------
     def energy(self, phi=None, q=None) -> sp.Expr:
-        """E = sum_{e in C} E^C_e(Q_e) + sum_{e in I} E^I_e(Phi_e)."""
+        """E = sum_{e in C} E^C_e(Q_e) + sum_{e in I} E^I_e(Phi_e).
+
+        External biases enter here as constant offsets to the edge variables: an
+        external flux through a loop is added to that loop's inductive edge
+        fluxes (weighted by ``B`` and split evenly so the loop integral equals
+        the bias symbol), and an offset charge on a node is added to that node's
+        capacitive edge charges (weighted by ``A``, split evenly).  This is the
+        manuscript's nonzero-Noether-constant prescription; with no bias set the
+        energy is unchanged.
+        """
         if phi is None or q is None:
             phi, q, _, _ = self.coordinate_symbols()
+        A = self.incidence_matrix()
+        B = self.orientation_matrix()
+        eidx, vidx, lidx = self._eidx(), self._vidx(), self._lidx()
+
+        # how many edges of the biased class touch each biased loop / node
+        ind_on_loop = {l: sum(1 for e, ed in self._edges.items()
+                              if ed.edge_class == INDUCTIVE and B[lidx[l], eidx[e]] != 0)
+                       for l in self._flux_bias}
+        cap_at_node = {v: sum(1 for e, ed in self._edges.items()
+                              if ed.edge_class == CAPACITIVE and A[eidx[e], vidx[v]] != 0)
+                       for v in self._offset_charge}
+
         E = sp.Integer(0)
         for ename, edge in self._edges.items():
+            ei = eidx[ename]
             if edge.edge_class == CAPACITIVE:
-                E += edge.energy(self.edge_charge(ename, q))
+                Q = self.edge_charge(ename, q)
+                for node, ng in self._offset_charge.items():
+                    if cap_at_node[node]:
+                        Q += A[ei, vidx[node]] * ng / cap_at_node[node]
+                E += edge.energy(Q)
             elif edge.edge_class == INDUCTIVE:
-                E += edge.energy(self.edge_flux(ename, phi))
+                Phi = self.edge_flux(ename, phi)
+                for loop, fx in self._flux_bias.items():
+                    if ind_on_loop[loop]:
+                        Phi += B[lidx[loop], ei] * fx / ind_on_loop[loop]
+                E += edge.energy(Phi)
         return sp.expand_trig(sp.expand(E))
 
     def lagrangian(self) -> sp.Expr:
@@ -405,6 +471,8 @@ class Circuit:
         syms = set()
         for el in self._elements:
             syms |= el.parameters
+        for val in list(self._flux_bias.values()) + list(self._offset_charge.values()):
+            syms |= val.free_symbols
         return syms
 
     def summary(self) -> str:

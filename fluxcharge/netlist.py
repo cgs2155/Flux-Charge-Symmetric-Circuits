@@ -137,13 +137,25 @@ def parse_netlist(text: str) -> Circuit:
                     raise NetlistError(f"line {lineno}: 'open' needs a loop name")
                 ckt.open_loops.extend(tok[1:])
 
+            elif head.lower() in ("flux", "flux_bias"):
+                if len(tok) < 2:
+                    raise NetlistError(
+                        f"line {lineno}: 'flux' needs 'loop [value]' (external flux)")
+                ckt.set_flux_bias(tok[1], tok[2] if len(tok) >= 3 else None)
+
+            elif head.lower() in ("offset", "charge", "offset_charge"):
+                if len(tok) < 2:
+                    raise NetlistError(
+                        f"line {lineno}: 'offset' needs 'node [value]' (offset charge)")
+                ckt.set_offset_charge(tok[1], tok[2] if len(tok) >= 3 else None)
+
             elif head.lower() in ("title", "name"):
                 ckt.title = " ".join(tok[1:])
 
             else:
                 raise NetlistError(
-                    f"line {lineno}: unrecognised entry {head!r} "
-                    "(expected C/L/J/QPS, gyrator, loop, ground, open, or title)")
+                    f"line {lineno}: unrecognised entry {head!r} (expected "
+                    "C/L/J/QPS, gyrator, loop, ground, open, flux, offset, or title)")
         except NetlistError:
             raise
         except Exception as exc:  # surface circuit-building errors with the line
@@ -204,4 +216,8 @@ def to_netlist(circuit) -> str:
         lines.append(f"ground {circuit.ground}")
     for ol in getattr(circuit, "open_loops", []) or []:
         lines.append(f"open   {ol}")
+    for loop, fx in getattr(circuit, "_flux_bias", {}).items():
+        lines.append(f"flux   {loop}  {val(fx)}")
+    for node, ng in getattr(circuit, "_offset_charge", {}).items():
+        lines.append(f"offset {node}  {val(ng)}")
     return "\n".join(lines) + "\n"

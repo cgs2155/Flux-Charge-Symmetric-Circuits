@@ -146,4 +146,12 @@ def dual(circuit: Circuit) -> Circuit:
                 entries.append("-" + ename)
         D.add_loop(v, entries)
 
+    # external biases follow the loop<->node swap: an external flux through a
+    # loop becomes an offset charge on the corresponding dual node, and an
+    # offset charge on a node becomes an external flux through the dual loop.
+    for loop, fx in circuit._flux_bias.items():
+        D.set_offset_charge(loop, fx)
+    for node, ng in circuit._offset_charge.items():
+        D.set_flux_bias(node, ng)
+
     return D

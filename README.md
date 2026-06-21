@@ -327,6 +327,39 @@ modelling choice (overridable via `mode_types=`).
 
 ---
 
+## External flux and offset charge
+
+External biases are the manuscript's **nonzero Noether constants**: an external
+flux threading a **loop**, and its LCG dual, an offset (gate) charge on a
+**node**.
+
+```python
+ckt.set_flux_bias("f1")            # external flux through loop f1 (symbol phi_ext_f1)
+ckt.set_flux_bias("f1", "phi_ext") # ... or name/number it
+ckt.set_offset_charge("v2")        # offset charge on node v2 (symbol n_g_v2)
+```
+
+or in a netlist, `flux <loop> [value]` and `offset <node> [value]`. They are
+injected as constant offsets to the edge fluxes/charges (split evenly over the
+loop's inductive / node's capacitive edges) so that **the symbol equals the
+physical bias**: the external flux has period `2*pi` with a fluxonium sweet spot
+at `pi`, and the offset charge has period `1` in Cooper-pair number. The bias
+symbols flow as ordinary parameters into the symbolic `H` and the numerics, so
+you sweep them like any other parameter:
+
+```python
+phi_ext = ckt.set_flux_bias("f1")
+res = ckt.hamiltonian(ground="v1", open_loops="f3")     # fluxonium
+res.plot_spectrum(phi_ext, np.linspace(0, 2*np.pi, 81),  # flux-tuning spectrum
+                  {"E_J": 4.0, "L": 1.0, "C": 1.0}, relative=True)
+```
+
+`dual()` carries a bias across the loop↔node swap (an external flux becomes an
+offset charge on the dual node and vice versa), so the dual circuit stays a
+faithful image including its biases.
+
+---
+
 ## Drawing a circuit
 
 Two views are available.

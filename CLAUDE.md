@@ -67,10 +67,21 @@ wrong or incomplete Hamiltonian.
 - Commutator sign is calibrated to the manuscript ([φ,q]=iħ for the transmon).
 - Quote/refer to the manuscript faithfully; surface the S¹-compactness caveat.
 
+## External bias (implemented)
+- `circuit.set_flux_bias(loop, value=None)` threads an external flux through a
+  loop; `set_offset_charge(node, value=None)` puts an offset/gate charge on a
+  node (the LCG dual). Both are the manuscript's nonzero Noether constants,
+  injected as constant offsets to the edge fluxes/charges in `Circuit.energy()`
+  (split evenly over the loop's inductive / node's capacitive edges so the
+  symbol equals the *physical* bias: flux period 2π with the sweet spot at π,
+  charge period 1). Netlist directives `flux <loop> [val]` / `offset <node>
+  [val]`. `dual()` carries them across the loop↔node swap. They flow as ordinary
+  parameters into the symbolic H and the numerics (sweep over them like any param).
+
 ## Deferred / possible next steps (v0.2)
 - Partial-dual transformation, gyrator series/parallel + open/closed-terminated
   deletion rules, cascade-to-transformer, NCG reducibility (the paper's Sec.
-  "Transformations"). External flux/charge bias (nonzero Noether constants).
+  "Transformations").
 - A true drag-and-drop canvas builder; the hard piece is automatic face/loop
   detection from a drawn planar layout (build a rotation system from node
   positions, trace faces). `to_networkx()` + `schematic(positions=)` are the hooks.
