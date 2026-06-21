@@ -360,6 +360,38 @@ faithful image including its biases.
 
 ---
 
+## Circuit library and tutorial
+
+Ready-made circuits are in `fluxcharge.library`, each fully wired (elements,
+loops, gauge, bias) so you can go straight to `.hamiltonian()` and a GHz
+spectrum:
+
+```python
+from fluxcharge import library
+res = library.fluxonium().hamiltonian(ground="v1", open_loops="f3")
+res.eigenenergies(library.fluxonium().natural_params({"E_J": "5GHz", "C": "1GHz", "L": "1GHz"}))
+```
+
+`transmon`, `cooper_pair_box`, `fluxonium`, `lc_resonator`, the manuscript
+`circulator`, and a quantum `phase_slip_qubit` (the LCG dual of the transmon)
+are included (`library.CIRCUITS` lists them). A guided
+[`examples/tutorial.ipynb`](examples/tutorial.ipynb) walks from a symbolic
+Hamiltonian to spectra, flux/charge sweeps, wavefunctions, the gyrator
+circulator, the phase-slip duality, and matrix elements / T1; the same content
+runs as [`examples/qubit_library.py`](examples/qubit_library.py).
+
+### Matrix elements and coherence
+
+`result.matrix_elements("q_f1", params)` gives exact `<i|n|j>`;
+`result.transition_sensitivity(bias, params)` gives `df01/d(bias)` (zero at a
+sweet spot); `result.t1(params, noise_op, S)` is Fermi's golden rule for a
+supplied spectral density `S(omega)`; and `result.dephasing_1_over_f(bias,
+params, amplitude)` estimates `1/f` dephasing. The exact pieces (matrix
+elements, sensitivity) are convention-free; the rate estimates are only as good
+as the noise model you supply.
+
+---
+
 ## Drawing a circuit
 
 Two views are available.

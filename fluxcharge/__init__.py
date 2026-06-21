@@ -66,6 +66,7 @@ from .coherence import (
     t1,
     dephasing_1_over_f,
 )
+from . import library
 
 __all__ = [
     "Circuit",
@@ -105,6 +106,7 @@ __all__ = [
     "transition_sensitivity",
     "t1",
     "dephasing_1_over_f",
+    "library",
 ]
 
 __version__ = "0.1.0"

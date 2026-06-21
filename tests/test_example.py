@@ -580,6 +580,42 @@ def test_gui_energy_units_form():
                                   - EJ * sp.cos(phi))) == 0
 
 
+def test_library_circuits_reduce_and_diagonalize():
+    """Every library circuit reduces to a complete Hamiltonian and (where it has
+    enough parameters set) diagonalizes to a real spectrum."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import library
+    defaults = {"E_J": "12GHz", "C": "70fF", "L": "150nH", "E_S": "12GHz", "G": 0.5}
+    for name, ctor in library.CIRCUITS.items():
+        ckt = ctor()
+        res = ckt.hamiltonian(ground=getattr(ckt, "ground", None),
+                              open_loops=getattr(ckt, "open_loops", None) or None,
+                              canonical=True)
+        assert res.complete, name
+        needed = {str(s) for s in res.H.free_symbols} - {str(c) for c in res.coordinates}
+        phys = {k: v for k, v in defaults.items() if k in needed}
+        # bias symbols (n_g_*, phi_ext_*) default to 0
+        params = ckt.natural_params(phys)
+        for s in needed:
+            params.setdefault(s, 0.0)
+        ev = res.eigenenergies(params, n_levels=3)
+        assert np.all(np.isreal(ev)), name
+
+
+def test_library_phase_slip_is_transmon_dual():
+    """The phase-slip qubit (flux basis) and the transmon (charge basis) share a
+    spectrum under E_S<->E_J, L<->C -- the LCG duality, from the library."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import library
+    tr = library.transmon().hamiltonian(ground="v1")
+    ev_t = tr.eigenenergies({"E_J": 10.0, "C": 1.0}, n_levels=5, cutoffs={"q_f1": 81})
+    qp = library.phase_slip_qubit(charge_bias=False).hamiltonian(ground="v1")
+    ev_q = qp.eigenenergies({"E_S": 10.0, "L": 1.0}, n_levels=5, cutoffs={"phi_v2": 80})
+    assert np.allclose(ev_t, ev_q, atol=1e-9)
+
+
 def test_matrix_elements_and_t1():
     """Charge matrix elements of the transmon, and the golden-rule T1 identity."""
     _require_numpy()
