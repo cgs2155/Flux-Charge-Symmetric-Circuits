@@ -21,7 +21,9 @@ double-clickable executable, freeze it with PyInstaller::
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import tempfile
 
 import sympy as sp
@@ -192,6 +194,69 @@ def _hamiltonian_latex(expr, operators):
     return sp.latex(expr, symbol_names=names)
 
 
+# ----------------------------------------------------------------------
+# quality-of-life helpers (pure functions -- testable without a display)
+# ----------------------------------------------------------------------
+def hamiltonian_clipboard(out, fmt="latex", energy=False):
+    """Text to copy for the current Hamiltonian / commutators.
+
+    *fmt* is ``"latex"`` (``\\hat{H} = ...``), ``"sympy"`` (a SymPy expression
+    string) or ``"commutators"`` (the bracket relations as LaTeX).  *energy*
+    selects the familiar-units (E_C/E_L/n) presentation.
+    """
+    if fmt == "latex":
+        return r"\hat{H} = " + (out["H_latex_energy"] if energy else out["H_latex"])
+    if fmt == "sympy":
+        return str(out["H_energy"] if energy else out["H"])
+    if fmt == "commutators":
+        return out["commutators_latex_energy"] if energy else out["commutators_latex"]
+    raise ValueError(f"unknown clipboard format {fmt!r}")
+
+
+def eigenenergies_csv(eigenvalues, modes=None):
+    """A CSV string of the eigenenergies (and the mode types, as a comment)."""
+    lines = []
+    if modes:
+        lines.append("# modes: " + "; ".join(f"{f}/{c}:{k}" for f, c, k in modes))
+    lines.append("level,energy")
+    for i, e in enumerate(eigenvalues):
+        lines.append(f"{i},{float(e):.12g}")
+    return "\n".join(lines) + "\n"
+
+
+def netlist_error_line(message):
+    """Extract the 1-based line number from a NetlistError message, or None."""
+    m = re.search(r"line (\d+)", str(message))
+    return int(m.group(1)) if m else None
+
+
+def _session_path():
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "fluxcharge", "session.json")
+
+
+def load_session():
+    """Return the saved session dict (netlist, params, levels, geometry), or {}."""
+    try:
+        with open(_session_path()) as fh:
+            data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_session(data):
+    """Persist the session dict; returns True on success.  Never raises."""
+    try:
+        path = _session_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            json.dump(data, fh, indent=2)
+        return True
+    except Exception:
+        return False
+
+
 def _energy_symbol(prefix, value_symbol):
     """Energy-parameter symbol for a capacitance/inductance value symbol:
     ``E_C`` from ``C``, ``E_C1`` from ``C1``, ``E_L`` from ``L`` (a leading
@@ -245,7 +310,7 @@ def energy_units_form(H, commutators, capacitances, inductances):
 def main():  # pragma: no cover - interactive
     import sys as _sys
     import tkinter as tk
-    from tkinter import ttk, filedialog, messagebox
+    from tkinter import ttk, filedialog
     import tkinter.font as tkfont
 
     _MOD = "⌘" if _sys.platform == "darwin" else "Ctrl+"   # ⌘ on macOS
@@ -490,6 +555,7 @@ def main():  # pragma: no cover - interactive
     rep_vsb.config(command=report.yview)
 
     last = {"out": None, "text": None}
+    last_diag = {"summary": None}      # most recent diagonalization, for CSV export
     busy_state = {"n": 0}
     action_buttons = [gen_btn, dual_btn, diag_btn]
 
@@ -512,6 +578,23 @@ def main():  # pragma: no cover - interactive
             progress.pack_forget()
             root.configure(cursor="")
 
+    def clear_error():
+        netlist.tag_remove("errline", "1.0", "end")
+
+    def report_error(msg):
+        """Surface an error inline (no modal): red status, details panel, and a
+        highlight of the offending netlist line if the message carries one."""
+        msg = str(msg)
+        status.config(text=f"error: {msg}", foreground="#b00020")
+        report.delete("1.0", "end")
+        report.insert("end", "ERROR\n\n" + msg)
+        ln = netlist_error_line(msg)
+        if ln:
+            netlist.tag_remove("errline", "1.0", "end")
+            netlist.tag_config("errline", background="#fde0e0")
+            netlist.tag_add("errline", f"{ln}.0", f"{ln}.end+1c")
+            netlist.see(f"{ln}.0")
+
     def run_async(work, on_success, busy_text="computing…"):
         """Run *work()* then *on_success(result)* on the main thread, off the
         click handler.
@@ -533,8 +616,7 @@ def main():  # pragma: no cover - interactive
             except Exception as exc:
                 _dbg("run_async.do: work() RAISED\n" + traceback.format_exc())
                 busy_off()
-                status.config(text=f"error: {exc}", foreground="#b00020")
-                messagebox.showerror("fluxcharge", str(exc))
+                report_error(exc)
                 return
             _dbg("run_async.do: work() done; busy_off; on_success")
             busy_off()
@@ -543,8 +625,7 @@ def main():  # pragma: no cover - interactive
                 _dbg("run_async.do: on_success done")
             except Exception as exc:
                 _dbg("run_async.do: on_success RAISED\n" + traceback.format_exc())
-                status.config(text=f"error: {exc}", foreground="#b00020")
-                messagebox.showerror("fluxcharge", str(exc))
+                report_error(exc)
 
         # let the busy state paint (the 30 ms tick is enough), then run on the
         # main thread.  No update_idletasks() here -- calling it before mainloop
@@ -633,6 +714,7 @@ def main():  # pragma: no cover - interactive
         def done(out):
             # the schematic uses schemdraw/matplotlib, so it must be drawn on the
             # main thread; show feedback because this part can briefly block
+            clear_error()
             status.config(text="rendering…", foreground=MUTED)
             root.update_idletasks()
             try:
@@ -657,7 +739,9 @@ def main():  # pragma: no cover - interactive
             report.insert("end", f"H = {out['H']}\n\nLagrangian:\n"
                           f"{out['lagrangian']}\n\n{out['report']}")
             import time
-            status.config(text=f"✓ generated: {out['title'] or 'circuit'}"
+            title = out["title"] or "circuit"
+            root.title(f"fluxcharge — {title}")
+            status.config(text=f"✓ generated: {title}"
                           f"   ({time.strftime('%H:%M:%S')})", foreground="#0a7d2c")
 
         run_async(work, done, busy_text="reducing circuit…")
@@ -670,9 +754,9 @@ def main():  # pragma: no cover - interactive
             d = dual(ckt)
             netlist.delete("1.0", "end")
             netlist.insert("1.0", to_netlist(d))
+            clear_error()
         except Exception as exc:
-            status.config(text=f"dual error: {exc}", foreground="#b00020")
-            messagebox.showerror("fluxcharge", str(exc))
+            report_error(exc)
             return
         generate()
 
@@ -683,8 +767,7 @@ def main():  # pragma: no cover - interactive
             params = _parse_params([params_entry.get()])
             n = max(1, int(levels_entry.get() or 6))
         except Exception as exc:
-            status.config(text=f"diagonalize error: {exc}", foreground="#b00020")
-            messagebox.showerror("fluxcharge", str(exc))
+            report_error(exc)
             return
 
         # reuse the reduction from the last Generate when the circuit is unchanged,
@@ -700,6 +783,8 @@ def main():  # pragma: no cover - interactive
                   busy_text="diagonalizing…")
 
     def _show_diag(summ, params, n):
+        clear_error()
+        last_diag["summary"] = summ
         ev = summ["eigenenergies"]
         lines = ["Mode types:"]
         for flux, charge, kind in summ["modes"]:
@@ -738,8 +823,73 @@ def main():  # pragma: no cover - interactive
                 pax.text(0.5, 0.5, f"plot unavailable:\n{exc}", ha="center",
                          va="center", wrap=True, fontsize=9)
         pcanvas = FigureCanvasTkAgg(pfig, master=win)
-        pcanvas.get_tk_widget().pack(fill="both", expand=True)
+        pcanvas.get_tk_widget().pack(fill="both", expand=True, side="top")
+
+        bar = ttk.Frame(win)
+        bar.pack(fill="x", side="bottom")
+
+        def save_plot():
+            path = filedialog.asksaveasfilename(
+                parent=win, defaultextension=".png",
+                filetypes=[("PNG", "*.png"), ("PDF", "*.pdf"), ("SVG", "*.svg")])
+            if path:
+                pfig.savefig(path, dpi=200, bbox_inches="tight")
+                status.config(text=f"saved plot to {os.path.basename(path)}",
+                              foreground="#0a7d2c")
+
+        ttk.Button(bar, text="Save plot…", command=save_plot).pack(side="right", padx=6, pady=6)
+        ttk.Button(bar, text="Export eigenenergies (CSV)…",
+                   command=lambda: export_csv()).pack(side="right", padx=2, pady=6)
         pcanvas.draw()
+
+    # ---- copy / export actions ----
+    def copy_h(fmt):
+        if not last["out"]:
+            status.config(text="nothing to copy — press Generate first",
+                          foreground="#b26a00")
+            return
+        txt = hamiltonian_clipboard(last["out"], fmt, energy=bool(energy_units.get()))
+        root.clipboard_clear()
+        root.clipboard_append(txt)
+        status.config(text=f"copied {fmt} to clipboard", foreground="#0a7d2c")
+
+    def save_schematic():
+        out = last["out"]
+        if not out or not out.get("schematic") or not os.path.exists(out["schematic"]):
+            status.config(text="generate a circuit first", foreground="#b26a00")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("PDF", "*.pdf"), ("SVG", "*.svg")])
+        if not path:
+            return
+        try:
+            import shutil
+            if path.lower().endswith(".png"):
+                shutil.copyfile(out["schematic"], path)   # already a PNG
+            else:
+                out["circuit"].schematic(path=path)        # re-render at the format
+            status.config(text=f"saved schematic to {os.path.basename(path)}",
+                          foreground="#0a7d2c")
+        except Exception as exc:
+            report_error(exc)
+
+    def export_csv():
+        summ = last_diag["summary"]
+        if not summ:
+            status.config(text="diagonalize first to export eigenenergies",
+                          foreground="#b26a00")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv", filetypes=[("CSV", "*.csv")])
+        if not path:
+            return
+        try:
+            with open(path, "w") as fh:
+                fh.write(eigenenergies_csv(summ["eigenenergies"], summ["modes"]))
+            status.config(text=f"saved {os.path.basename(path)}", foreground="#0a7d2c")
+        except Exception as exc:
+            report_error(exc)
 
     # Pre-warm matplotlib's mathtext font cache shortly after the window is up.
     # The first equation render builds this cache and can take a few seconds; we
@@ -773,6 +923,80 @@ def main():  # pragma: no cover - interactive
         root.bind_all(seq, _key(do_load))
     for seq in ("<Command-s>", "<Control-s>"):
         root.bind_all(seq, _key(do_save))
+
+    # ---- session persistence ----
+    def _collect_session():
+        return {
+            "netlist": netlist.get("1.0", "end-1c"),
+            "params": params_entry.get(),
+            "levels": levels_entry.get(),
+            "geometry": root.winfo_geometry(),
+            "energy_units": bool(energy_units.get()),
+        }
+
+    def _restore_session():
+        data = load_session()
+        if not data:
+            return
+        if data.get("geometry"):
+            try:
+                root.geometry(data["geometry"])
+            except Exception:
+                pass
+        if data.get("netlist", "").strip():
+            netlist.delete("1.0", "end")
+            netlist.insert("1.0", data["netlist"])
+        if data.get("params"):
+            params_entry.delete(0, "end")
+            params_entry.insert(0, data["params"])
+        if data.get("levels"):
+            levels_entry.delete(0, "end")
+            levels_entry.insert(0, str(data["levels"]))
+        if data.get("energy_units"):
+            energy_units.set(True)
+
+    def on_quit():
+        save_session(_collect_session())
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_quit)
+    for seq in ("<Command-q>", "<Control-q>", "<Command-w>", "<Control-w>"):
+        root.bind_all(seq, _key(on_quit))
+
+    # ---- menu bar (discoverable actions + accelerators) ----
+    menubar = tk.Menu(root)
+    m_file = tk.Menu(menubar, tearoff=0)
+    m_file.add_command(label="Open Netlist…", command=do_load, accelerator=f"{_MOD}O")
+    m_file.add_command(label="Save Netlist…", command=do_save, accelerator=f"{_MOD}S")
+    m_file.add_separator()
+    m_file.add_command(label="Save Schematic…", command=save_schematic)
+    m_file.add_command(label="Export Eigenenergies (CSV)…", command=export_csv)
+    m_file.add_separator()
+    m_file.add_command(label="Quit", command=on_quit, accelerator=f"{_MOD}Q")
+    menubar.add_cascade(label="File", menu=m_file)
+
+    m_edit = tk.Menu(menubar, tearoff=0)
+    m_edit.add_command(label="Copy Hamiltonian (LaTeX)", command=lambda: copy_h("latex"))
+    m_edit.add_command(label="Copy Hamiltonian (SymPy)", command=lambda: copy_h("sympy"))
+    m_edit.add_command(label="Copy Commutators (LaTeX)",
+                       command=lambda: copy_h("commutators"))
+    menubar.add_cascade(label="Edit", menu=m_edit)
+
+    m_act = tk.Menu(menubar, tearoff=0)
+    m_act.add_command(label="Generate", command=generate, accelerator=f"{_MOD}↩ / F5")
+    m_act.add_command(label="Dualize", command=dualize, accelerator=f"{_MOD}D")
+    m_act.add_command(label="Diagonalize", command=diagonalize, accelerator=f"{_MOD}K")
+    menubar.add_cascade(label="Actions", menu=m_act)
+
+    m_view = tk.Menu(menubar, tearoff=0)
+    m_view.add_checkbutton(label="Energy units (E_C, E_L, n)",
+                           variable=energy_units, command=lambda: _rerender())
+    m_view.add_checkbutton(label="LaTeX (system TeX)",
+                           variable=use_latex, command=lambda: _rerender())
+    menubar.add_cascade(label="View", menu=m_view)
+    root.config(menu=menubar)
+
+    _restore_session()
     _dbg(f"main(): GUI built; python={__import__('sys').executable}")
 
     # Bring the window to the front and give it focus.  A terminal-launched

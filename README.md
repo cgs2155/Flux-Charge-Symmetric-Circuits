@@ -126,9 +126,14 @@ the definitions shown beneath. Rendering uses matplotlib's mathtext by default;
 tick **LaTeX (system TeX)** to render through a real LaTeX installation if you
 have one (it falls back to mathtext automatically if not). The UI uses Tkinter, which ships with standard
 Python on Windows and macOS; on Linux install the system `python3-tk` package.
-All actions also have keyboard shortcuts: **Generate** (`⌘↩` / `F5`), **Dualize**
-(`⌘D`), **Diagonalize** (`⌘K`), **Load** (`⌘O`), **Save** (`⌘S`) — `Ctrl` instead
-of `⌘` on Windows/Linux. To produce a double-clickable app, freeze it with
+All actions also have keyboard shortcuts and a menu bar (File / Edit / Actions /
+View): **Generate** (`⌘↩` / `F5`), **Dualize** (`⌘D`), **Diagonalize** (`⌘K`),
+**Load** (`⌘O`), **Save** (`⌘S`), **Quit** (`⌘Q`) — `Ctrl` instead of `⌘` on
+Windows/Linux. The **Edit** menu copies the Hamiltonian (LaTeX or SymPy) and the
+commutators to the clipboard; **File** saves the schematic and exports the
+eigenenergies to CSV (the spectrum window also has *Save plot…*). Parse errors
+are shown inline with the offending netlist line highlighted (no dialog), and
+the last netlist, parameters and window size are remembered between sessions. To produce a double-clickable app, freeze it with
 [PyInstaller](https://pyinstaller.org) using the bundled spec (run from the repo
 root): `pip install pyinstaller` then `pyinstaller fluxcharge-gui.spec --noconfirm`,
 which writes `dist/fluxcharge-gui.app` (macOS) or `dist/fluxcharge-gui/`

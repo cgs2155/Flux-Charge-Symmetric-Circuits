@@ -580,6 +580,31 @@ def test_gui_energy_units_form():
                                   - EJ * sp.cos(phi))) == 0
 
 
+def test_gui_qol_helpers(tmp_path, monkeypatch):
+    """Clipboard text, CSV export, error-line parsing and session round-trip."""
+    from fluxcharge.gui import (compute, hamiltonian_clipboard, eigenenergies_csv,
+                                netlist_error_line, load_session, save_session)
+    out = compute("J e1 v1 v2 E_J\nC e2 v1 v2 C\nloop f1 +e1 -e2\nground v1",
+                  draw=False)
+    # clipboard formats
+    assert hamiltonian_clipboard(out, "latex").startswith(r"\hat{H} = ")
+    assert "E_J" in hamiltonian_clipboard(out, "sympy")
+    assert "4 E_{C}" in hamiltonian_clipboard(out, "latex", energy=True)
+    assert "phi" in hamiltonian_clipboard(out, "commutators")
+    # csv
+    csv = eigenenergies_csv([1.0, 2.5, 3.0], modes=[("phi_v2", "q_f1", "periodic")])
+    assert "level,energy" in csv and "0,1" in csv and "periodic" in csv
+    # error-line parsing
+    assert netlist_error_line("line 7: bad token") == 7
+    assert netlist_error_line("no number here") is None
+    # session round-trip (redirect config dir to a temp path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert load_session() == {}
+    assert save_session({"netlist": "J e1 v1 v2", "levels": 5})
+    got = load_session()
+    assert got["netlist"] == "J e1 v1 v2" and got["levels"] == 5
+
+
 def test_gui_summary_from_result_matches():
     """summary_from_result (the cached-reduction path the UI uses) agrees with
     the full numerical_summary."""
