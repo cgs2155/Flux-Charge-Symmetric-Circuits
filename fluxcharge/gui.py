@@ -26,6 +26,7 @@ import tempfile
 
 import sympy as sp
 
+from .elements import Capacitor, Inductor
 from .netlist import from_netlist, to_netlist
 from .transformations import dual
 
@@ -82,6 +83,18 @@ def compute(netlist_text, canonical=True, schematic_path=None, draw=True):
         for a, b, v in comm)
     compact = result.compact_coordinates()
 
+    # familiar-units presentation: q -> n, capacitances -> E_C, inductances -> E_L
+    capacitances = {el.C for el in ckt._elements if isinstance(el, Capacitor)}
+    inductances = {el.L for el in ckt._elements if isinstance(el, Inductor)}
+    H_e, comm_e, defs, charge_map = energy_units_form(
+        result.H, comm, capacitances, inductances)
+    operators_e = [charge_map.get(s, s) for s in operators]
+    H_latex_energy = _hamiltonian_latex(H_e, operators_e)
+    comm_latex_energy = r",\ \ ".join(
+        f"[{_operator_latex(a)},\\,{_operator_latex(b)}] = {sp.latex(v)}"
+        for a, b, v in comm_e)
+    defs_latex = r",\ \ ".join(sp.latex(d) for d in defs)
+
     return {
         "title": getattr(ckt, "title", None),
         "circuit": ckt,
@@ -89,8 +102,12 @@ def compute(netlist_text, canonical=True, schematic_path=None, draw=True):
         "schematic": drawn,
         "H": result.H,
         "H_latex": _hamiltonian_latex(result.H, operators),
+        "H_energy": H_e,
+        "H_latex_energy": H_latex_energy,
         "commutators": comm,
         "commutators_latex": comm_latex,
+        "commutators_latex_energy": comm_latex_energy,
+        "energy_defs_latex": defs_latex,
         "compact": compact,
         "lagrangian": ckt.lagrangian(),
         "report": result.report(),
@@ -154,6 +171,56 @@ def _hamiltonian_latex(expr, operators):
     ordinary c-numbers)."""
     names = {s: _operator_latex(s) for s in operators}
     return sp.latex(expr, symbol_names=names)
+
+
+def _energy_symbol(prefix, value_symbol):
+    """Energy-parameter symbol for a capacitance/inductance value symbol:
+    ``E_C`` from ``C``, ``E_C1`` from ``C1``, ``E_L`` from ``L`` (a leading
+    ``C``/``L`` of the value symbol is folded into the prefix)."""
+    name = getattr(value_symbol, "name", str(value_symbol))
+    suffix = name[1:] if name[:1] in ("C", "L") else "_" + name
+    return sp.Symbol(prefix + suffix, positive=True)
+
+
+def energy_units_form(H, commutators, capacitances, inductances):
+    """Rewrite *H* and *commutators* in the familiar qubit units.
+
+    In this package's natural units (``hbar = 1``, reduced flux quantum ``= 1``,
+    hence ``2e = 1``) the charge ``q`` conjugate to the phase ``phi`` is the
+    Cooper-pair number ``n`` (``[phi, q] = i`` is ``[phi, n] = i``), so ``q -> n``
+    is a relabelling.  Each capacitance ``C`` is written via the charging energy
+    ``E_C = e**2/(2C) = 1/(8C)`` (so ``q**2/(2C) -> 4 E_C n**2``) and each
+    inductance ``L`` via ``E_L = 1/L`` (so ``phi**2/(2L) -> E_L phi**2/2``).
+    ``E_J`` / ``E_S`` are already energies and are left untouched.
+
+    Returns ``(H_energy, commutators_energy, definitions, charge_map)`` where
+    *definitions* is a list of ``sympy.Eq`` (``E_C = 1/(8C)``, ``E_L = 1/L``) and
+    *charge_map* maps each ``q_*`` symbol to its ``n_*`` relabel.
+    """
+    subs = {}
+    definitions = []
+    for C in capacitances:
+        EC = _energy_symbol("E_C", C)
+        subs[C] = 1 / (8 * EC)
+        definitions.append(sp.Eq(EC, sp.Rational(1, 8) / C, evaluate=False))
+    for L in inductances:
+        EL = _energy_symbol("E_L", L)
+        subs[L] = 1 / EL
+        definitions.append(sp.Eq(EL, 1 / L, evaluate=False))
+
+    charge_map = {}
+    syms = set(H.free_symbols)
+    for a, b, _ in commutators:
+        syms |= {a, b}
+    for s in syms:
+        nm = getattr(s, "name", "")
+        if nm.startswith("q_"):
+            charge_map[s] = sp.Symbol("n_" + nm[2:])
+
+    H_energy = sp.expand(H.subs(subs)).subs(charge_map)
+    commutators_energy = [(charge_map.get(a, a), charge_map.get(b, b), v)
+                          for a, b, v in commutators]
+    return H_energy, commutators_energy, definitions, charge_map
 
 
 def main():  # pragma: no cover - interactive
@@ -295,6 +362,9 @@ def main():  # pragma: no cover - interactive
     use_latex = tk.BooleanVar(value=False)
     ttk.Checkbutton(fb, text="LaTeX", variable=use_latex,
                     command=lambda: _rerender()).pack(side="right")
+    energy_units = tk.BooleanVar(value=False)
+    ttk.Checkbutton(fb, text="E_C, E_L, n̂", variable=energy_units,
+                    command=lambda: _rerender()).pack(side="right", padx=(0, 8))
 
     # ---- builder card ----
     b = card(left, "Add to circuit")
@@ -460,17 +530,25 @@ def main():  # pragma: no cover - interactive
         ax_sch.set_title((out["title"] or "circuit").replace("_", r"\_"),
                          fontsize=12, color=INK, fontfamily="sans-serif")
 
+        e_units = bool(energy_units.get())
+        H_l = out["H_latex_energy"] if e_units else out["H_latex"]
+        comm_l = out["commutators_latex_energy"] if e_units else out["commutators_latex"]
+
         ax_h.clear(); ax_h.axis("off")
-        ax_h.text(0.0, 0.95, "Hamiltonian", transform=ax_h.transAxes, ha="left",
+        label = "Hamiltonian (energy units)" if e_units else "Hamiltonian"
+        ax_h.text(0.0, 0.95, label, transform=ax_h.transAxes, ha="left",
                   va="top", fontsize=9, color=MUTED, fontfamily="sans-serif")
-        ax_h.text(0.5, 0.45, f"$\\hat{{H}} = {out['H_latex']}$",
+        ax_h.text(0.5, 0.55, f"$\\hat{{H}} = {H_l}$",
                   ha="center", va="center", fontsize=16, color=INK)
+        if e_units and out["energy_defs_latex"]:
+            ax_h.text(0.5, 0.06, f"$({out['energy_defs_latex']})$",
+                      ha="center", va="center", fontsize=9, color=MUTED)
 
         ax_comm.clear(); ax_comm.axis("off")
-        if out["commutators_latex"]:
+        if comm_l:
             ax_comm.text(0.0, 0.95, "commutation relations", transform=ax_comm.transAxes,
                          ha="left", va="top", fontsize=9, color=MUTED, fontfamily="sans-serif")
-            ax_comm.text(0.5, 0.50, f"${out['commutators_latex']}$",
+            ax_comm.text(0.5, 0.50, f"${comm_l}$",
                          ha="center", va="center", fontsize=15, color=INK)
             if out["compact"]:
                 names = ", ".join(f"${_operator_latex(s)}$" for s in out["compact"])

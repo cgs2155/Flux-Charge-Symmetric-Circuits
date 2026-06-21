@@ -117,9 +117,14 @@ element / gyrator / loop* helpers so you needn't know the syntax — then press
 **Generate** to draw the schematic and show the Lagrangian, the Hamiltonian and
 the canonical commutation relations. The Hamiltonian and brackets are typeset as
 operators (`\hat H`, `\hat\phi`, `\hat q`, with c-number parameters left plain).
-Rendering uses matplotlib's mathtext by default; tick **LaTeX (system TeX)** to
-render through a real LaTeX installation if you have one (it falls back to
-mathtext automatically if not). The UI uses Tkinter, which ships with standard
+Tick **E_C, E_L, n̂** to re-present the Hamiltonian and commutators in the
+familiar qubit units: the conjugate charge `q` is relabelled to the Cooper-pair
+number `n`, each capacitance becomes a charging energy `E_C = 1/(8C)` and each
+inductance an inductive energy `E_L = 1/L` (so a transmon reads
+`4 E_C n² − E_J cos φ` and a fluxonium `4 E_C n² + E_L φ²/2 − E_J cos φ`), with
+the definitions shown beneath. Rendering uses matplotlib's mathtext by default;
+tick **LaTeX (system TeX)** to render through a real LaTeX installation if you
+have one (it falls back to mathtext automatically if not). The UI uses Tkinter, which ships with standard
 Python on Windows and macOS; on Linux install the system `python3-tk` package.
 To produce a single double-clickable executable, freeze it with
 [PyInstaller](https://pyinstaller.org):

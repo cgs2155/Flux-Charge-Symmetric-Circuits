@@ -538,6 +538,48 @@ def test_numerics_default_cutoffs_all_mode_kinds():
     assert len(ev) == 4 and np.all(np.isreal(ev))
 
 
+def test_gui_energy_units_form():
+    """The familiar-units rewrite turns the transmon into 4 E_C n^2 - E_J cos(phi)
+    and the fluxonium into 4 E_C n^2 + E_L phi^2/2 - E_J cos(phi), relabelling the
+    charge q -> n in both H and the commutators."""
+    from fluxcharge.gui import energy_units_form
+
+    def plain(expr):  # drop symbol assumptions so name-equal symbols cancel
+        return expr.xreplace({s: sp.Symbol(s.name) for s in expr.free_symbols})
+
+    EC, EL, EJ = sp.symbols("E_C E_L E_J")
+    n, phi = sp.Symbol("n_f1"), sp.Symbol("phi_v2")
+    hbar = sp.Symbol("hbar")
+
+    # transmon
+    t = Circuit()
+    t.add_josephson("e1", "v1", "v2", EJ="E_J")
+    t.add_capacitor("e2", "v1", "v2", C="C")
+    t.add_loop("f1", ["+e1", "-e2"])
+    r = t.hamiltonian(ground="v1")
+    H_e, comm_e, defs, cmap = energy_units_form(
+        r.H, r.commutators(), {sp.Symbol("C")}, set())
+    assert sp.expand(plain(H_e) - (4 * EC * n ** 2 - EJ * sp.cos(phi))) == 0
+    # charge relabelled in the commutator, value preserved
+    a, b, val = comm_e[0]
+    assert b == n and sp.simplify(plain(val) - sp.I * hbar) == 0
+    assert "E_C" in [d.lhs.name for d in defs]
+
+    # fluxonium
+    fx = Circuit()
+    fx.add_josephson("e1", "v1", "v2", EJ="E_J")
+    fx.add_inductor("e2", "v1", "v2", L="L")
+    fx.add_capacitor("e3", "v1", "v2", C="C")
+    fx.add_loop("f1", ["+e1", "-e2"]); fx.add_loop("f2", ["+e2", "-e3"])
+    fx.add_loop("f3", ["-e1", "+e3"])
+    rf = fx.hamiltonian(ground="v1", open_loops="f3")
+    Hf, _, _, _ = energy_units_form(rf.H, rf.commutators(),
+                                    {sp.Symbol("C")}, {sp.Symbol("L")})
+    nf = sp.Symbol("n_f2")
+    assert sp.expand(plain(Hf) - (4 * EC * nf ** 2 + EL * phi ** 2 / 2
+                                  - EJ * sp.cos(phi))) == 0
+
+
 def test_gui_summary_from_result_matches():
     """summary_from_result (the cached-reduction path the UI uses) agrees with
     the full numerical_summary."""
