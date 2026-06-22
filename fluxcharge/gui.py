@@ -1031,6 +1031,28 @@ def main():  # pragma: no cover - interactive
         except Exception as exc:
             report_error(exc)
 
+    def import_scqubits():
+        from .interop import from_scqubits_yaml
+        from .netlist import to_netlist
+        path = filedialog.askopenfilename(
+            filetypes=[("scqubits YAML", "*.yaml *.yml"), ("all", "*.*")])
+        if not path:
+            return
+        try:
+            imp, params = from_scqubits_yaml(path)
+            netlist.delete("1.0", "end")
+            netlist.insert("1.0", to_netlist(imp))
+            if params:           # prefill the params box so it diagonalizes in GHz
+                params_entry.delete(0, "end")
+                params_entry.insert(0, ", ".join(f"{k}={v}" for k, v in params.items()))
+                units_var.set(False)
+            clear_error()
+            generate()
+            status.config(text=f"imported {os.path.basename(path)} from scqubits",
+                          foreground="#0a7d2c")
+        except Exception as exc:
+            report_error(exc)
+
     # Pre-warm matplotlib's mathtext font cache shortly after the window is up.
     # The first equation render builds this cache and can take a few seconds; we
     # warm it on the main thread (no threads -- see run_async) so the first real
@@ -1108,6 +1130,7 @@ def main():  # pragma: no cover - interactive
     m_file = tk.Menu(menubar, tearoff=0)
     m_file.add_command(label="Open Netlist…", command=do_load, accelerator=f"{_MOD}O")
     m_file.add_command(label="Save Netlist…", command=do_save, accelerator=f"{_MOD}S")
+    m_file.add_command(label="Import scqubits YAML…", command=import_scqubits)
     m_file.add_separator()
     m_file.add_command(label="Save Schematic…", command=save_schematic)
     m_file.add_command(label="Export Eigenenergies (CSV)…", command=export_csv)
