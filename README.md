@@ -453,9 +453,21 @@ A circuit is an oriented planar multigraph `G = (V, E, F)`.
 * **Edges** `E` are added through the element methods. Each edge is directed
   `tail → head`; this fixes the sign convention of the incidence matrix
   (`A[e, head] = +1`, `A[e, tail] = −1`).
-* **Loops / faces** `F` are declared with `add_loop(name, signed_edges)`. The
-  signs are exactly the entries `B[l, e]` of the orientation matrix: `"+e"`
-  when the edge and the loop circulate the same way, `"-e"` otherwise.
+* **Loops / faces** `F` may be declared with `add_loop(name, signed_edges)` --
+  the signs are exactly the entries `B[l, e]` of the orientation matrix (`"+e"`
+  when the edge and loop circulate the same way, `"-e"` otherwise) -- but this is
+  **optional**. If you declare no loops, they are inferred from the graph:
+  `hamiltonian()` calls `infer_loops()`, which finds a planar embedding and
+  traces its faces (so `dual()` and `schematic()` work). A non-planar circuit
+  falls back to a cycle basis (the Hamiltonian still works; duality/drawing do
+  not) and warns. So you can build a circuit from just its elements:
+
+  ```python
+  ckt = Circuit()
+  ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+  ckt.add_capacitor("e2", "v1", "v2", C="C")
+  ckt.hamiltonian(ground="v1")        # loops inferred automatically
+  ```
 
 | element              | method            | class       | energy              |
 |----------------------|-------------------|-------------|---------------------|

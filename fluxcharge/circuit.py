@@ -57,6 +57,7 @@ class Circuit:
         # external biases: constant Noether offsets (see set_flux_bias / set_offset_charge)
         self._flux_bias: "OrderedDict[str, sp.Expr]" = OrderedDict()      # loop -> Phi_ext
         self._offset_charge: "OrderedDict[str, sp.Expr]" = OrderedDict()  # node -> n_g
+        self._planar = None     # set by infer_loops(): True/False/None(unknown)
 
     # ------------------------------------------------------------------
     # construction
@@ -121,6 +122,26 @@ class Circuit:
                 raise ValueError(f"loop {name!r} references unknown edge {ename!r}")
             entries.append((sign, ename))
         self._loops[name] = entries
+
+    def infer_loops(self, force: bool = False):
+        """Derive the loops automatically from the circuit graph.
+
+        Finds a planar embedding and traces its faces (so ``dual`` and
+        ``schematic`` work); for a non-planar circuit it falls back to a cycle
+        basis (the Hamiltonian still works) and warns.  Declaring loops by hand
+        is therefore optional.  Does nothing if loops already exist unless
+        *force* is set.  Returns the list of loop names.
+        """
+        from .topology import infer_loops as _infer
+        if self._loops and not force:
+            return self.loops
+        if force:
+            self._loops.clear()
+        loops, planar = _infer(self)
+        self._planar = planar
+        for name, tokens in loops:
+            self.add_loop(name, tokens)
+        return self.loops
 
     # ------------------------------------------------------------------
     # external biases (nonzero Noether constants of the manuscript)
@@ -434,6 +455,8 @@ class Circuit:
         """
         from .reduction import Reducer
 
+        if not self._loops:
+            self.infer_loops()      # loops are optional: derive them from the graph
         self.validate()
 
         r = Reducer(self)

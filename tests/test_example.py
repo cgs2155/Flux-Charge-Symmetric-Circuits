@@ -580,6 +580,92 @@ def test_gui_energy_units_form():
                                   - EJ * sp.cos(phi))) == 0
 
 
+def _charge_cutoffs(result, n=81):
+    return {str(b): n for _a, b, _c in result.conjugate_pairs}
+
+
+def test_infer_loops_reproduces_hand_declared_spectra():
+    """Auto-inferred loops give the same spectrum as hand-declared faces, for
+    the transmon, fluxonium and the gyrator circulator."""
+    _require_numpy()
+    import numpy as np
+
+    def transmon(declare):
+        c = Circuit()
+        c.add_josephson("e1", "v1", "v2", EJ="E_J")
+        c.add_capacitor("e2", "v1", "v2", C="C")
+        if declare:
+            c.add_loop("f1", ["+e1", "-e2"])
+        return c, {"E_J": 12.0, "C": 1.0}
+
+    def fluxonium(declare):
+        c = Circuit()
+        c.add_josephson("e1", "v1", "v2", EJ="E_J")
+        c.add_inductor("e2", "v1", "v2", L="L")
+        c.add_capacitor("e3", "v1", "v2", C="C")
+        if declare:
+            c.add_loop("f1", ["+e1", "-e2"]); c.add_loop("f2", ["+e2", "-e3"])
+            c.add_loop("f3", ["-e1", "+e3"])
+        return c, {"E_J": 8.0, "L": 1.0, "C": 1.0}
+
+    def circulator(declare):
+        c = Circuit()
+        c.add_josephson("e1", "v1", "v2", EJ="E_J")
+        c.add_capacitor("e2", "v2", "v3", C="C")
+        c.add_capacitor("e3", "v3", "v1", C="C")
+        c.add_gyrator(("e4", "v1", "v3"), ("e5", "v2", "v3"), G="G")
+        if declare:
+            for n, e in [("f1", ["+e3", "+e4"]), ("f2", ["+e1", "-e4", "+e5"]),
+                         ("f3", ["+e2", "-e5"]), ("f4", ["-e1", "-e2", "-e3"])]:
+                c.add_loop(n, e)
+        return c, {"E_J": 10.0, "C": 1.0, "G": 0.5}
+
+    for build in (transmon, fluxonium, circulator):
+        ch, params = build(True)
+        ca, _ = build(False)
+        rh = ch.hamiltonian(ground="v1", strict=False, canonical=True)
+        ra = ca.hamiltonian(ground="v1", strict=False, canonical=True)
+        assert ca._planar is True
+        ev_h = rh.eigenenergies(params, n_levels=5, cutoffs=_charge_cutoffs(rh, 60))
+        ev_a = ra.eigenenergies(params, n_levels=5, cutoffs=_charge_cutoffs(ra, 60))
+        assert np.allclose(ev_h, ev_a, atol=1e-6), build.__name__
+
+
+def test_infer_loops_nonplanar_fallback():
+    """A non-planar circuit (K5 of inductors) yields a cycle basis of E-V+1
+    loops that satisfy Kirchhoff (B*A=0), with the non-planar flag set."""
+    import sympy as sp
+    import warnings
+    c = Circuit()
+    nodes = ["v1", "v2", "v3", "v4", "v5"]
+    k = 0
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            k += 1
+            c.add_inductor(f"e{k}", nodes[i], nodes[j], L=f"L{k}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        c.infer_loops()
+    assert c._planar is False
+    assert len(c.loops) == len(c.edges) - len(c.vertices) + 1   # E - V + 1
+    BA = c.orientation_matrix() * c.incidence_matrix()
+    assert BA == sp.zeros(*BA.shape)                            # valid cycles
+
+
+def test_hamiltonian_without_declared_loops():
+    """hamiltonian() works with no loops declared (auto-inference)."""
+    ckt = Circuit()
+    ckt.add_josephson("e1", "v1", "v2", EJ="E_J")
+    ckt.add_capacitor("e2", "v1", "v2", C="C")
+    res = ckt.hamiltonian(ground="v1", canonical=True)   # no add_loop
+    assert res.complete
+    C, EJ = sp.Symbol("C"), sp.Symbol("E_J")
+    phi = sp.Symbol("phi_v2")
+    (a, b, _), = res.conjugate_pairs
+    q = b if str(b).startswith("q_") else a
+    assert sp.simplify(res.H - (q ** 2 / (2 * C) - EJ * sp.cos(phi))) == 0
+
+
 def test_library_circuits_reduce_and_diagonalize():
     """Every library circuit reduces to a complete Hamiltonian and (where it has
     enough parameters set) diagonalizes to a real spectrum."""

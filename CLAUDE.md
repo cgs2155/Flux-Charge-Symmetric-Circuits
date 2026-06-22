@@ -78,11 +78,21 @@ wrong or incomplete Hamiltonian.
   [val]`. `dual()` carries them across the loop↔node swap. They flow as ordinary
   parameters into the symbolic H and the numerics (sweep over them like any param).
 
+## Automatic loop inference (implemented)
+- Declaring loops is optional. `Circuit.infer_loops()` (called by `hamiltonian()`
+  when no loops exist) derives them from the graph: `topology.py` subdivides each
+  edge with a midpoint, finds a planar embedding via `networkx.check_planarity`,
+  and traces the **faces** (so `dual`/`schematic` work). A non-planar circuit
+  falls back to a tree-based fundamental cycle basis (Hamiltonian only) and warns;
+  `Circuit._planar` records which. Inferred loops reproduce the hand-declared
+  transmon/fluxonium/circulator spectra (tested).
+
 ## Deferred / possible next steps (v0.2)
 - Partial-dual transformation, gyrator series/parallel + open/closed-terminated
   deletion rules, cascade-to-transformer, NCG reducibility (the paper's Sec.
   "Transformations").
-- A true drag-and-drop canvas builder; the hard piece is automatic face/loop
-  detection from a drawn planar layout (build a rotation system from node
-  positions, trace faces). `to_networkx()` + `schematic(positions=)` are the hooks.
+- A scqubits-YAML importer (now that loops are auto-inferred, their reciprocal
+  circuits become drop-in) + cross-validation of spectra.
+- A true drag-and-drop canvas builder (the face-detection hook is now
+  `infer_loops`; `to_networkx()` + `schematic(positions=)` remain the layout hooks).
 - LICENSE + CITATION.cff still have placeholders to finalize before release.
