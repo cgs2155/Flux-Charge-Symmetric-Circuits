@@ -130,8 +130,10 @@ All actions also have keyboard shortcuts and a menu bar (File / Edit / Actions /
 View): **Generate** (`⌘↩` / `F5`), **Dualize** (`⌘D`), **Diagonalize** (`⌘K`),
 **Load** (`⌘O`), **Save** (`⌘S`), **Quit** (`⌘Q`) — `Ctrl` instead of `⌘` on
 Windows/Linux. The **Edit** menu copies the Hamiltonian (LaTeX or SymPy) and the
-commutators to the clipboard; **File** saves the schematic and exports the
-eigenenergies to CSV (the spectrum window also has *Save plot…*). Parse errors
+commutators to the clipboard; **File** imports an scqubits YAML, saves the
+schematic, exports the eigenenergies to CSV, and writes a ready-to-run **QuTiP
+script** for the current circuit (the spectrum window also has *Save plot…*).
+Parse errors
 are shown inline with the offending netlist line highlighted (no dialog), and
 the last netlist, parameters and window size are remembered between sessions. To produce a double-clickable app, freeze it with
 [PyInstaller](https://pyinstaller.org) using the bundled spec (run from the repo
