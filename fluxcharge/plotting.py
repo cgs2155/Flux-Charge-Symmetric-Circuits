@@ -101,13 +101,21 @@ def plot_spectrum(result, parameter, values, params=None, n_levels=6,
 
 def plot_potential_wavefunctions(result, params=None, n_levels=5, cutoffs=None,
                                  offsets=None, mode_types=None, ax=None,
-                                 path=None, grid=400, scale=None):
-    """Potential and stacked eigenstate densities for a *single-mode* circuit.
+                                 path=None, grid=400, scale=None,
+                                 representation="auto"):
+    """Eigenstate densities for a *single-mode* circuit, in flux or charge space.
 
-    The probability density of each eigenstate is drawn at the height of its
-    eigenenergy on top of the potential, in the natural coordinate of the mode
-    (flux for ``EXTENDED``/``PERIODIC``, charge for ``DUAL_PERIODIC``).  Raises
-    if the reduced circuit has more than one degree of freedom.
+    *representation* selects which variable the wavefunctions are shown in:
+
+    * ``"auto"`` (default) -- the natural *potential* coordinate (flux for a
+      junction, charge for a phase slip), drawn over the potential ``V``;
+    * ``"flux"`` / ``"charge"`` -- the chosen variable.  When it is the potential
+      coordinate you also get ``V``; when it is the conjugate, the densities are
+      the Fourier transform of the eigenstates (continuous for an extended mode,
+      the discrete charge/flux-number distribution for a periodic one) and there
+      is no potential curve (it does not live in that variable).
+
+    Raises if the reduced circuit has more than one degree of freedom.
     """
     import numpy as np
     result = result if result.is_canonical else result.canonical()
@@ -118,23 +126,57 @@ def plot_potential_wavefunctions(result, params=None, n_levels=5, cutoffs=None,
             f"has {len(modes)} modes. Use plot_energy_levels / plot_spectrum.")
     mode = modes[0]
     ax = _ax(ax)
-    x, V, energies, psis, xsym = _realspace_1d(result, mode, params, n_levels,
-                                               cutoffs, offsets, mode_types, grid)
-    ax.plot(x, V, color="k", lw=1.5, zorder=5)
-    span = (V.max() - V.min()) or 1.0
+
+    x, V, energies, psis, pos = _realspace_1d(result, mode, params, n_levels,
+                                              cutoffs, offsets, mode_types, grid)
+    conj = mode.charge if pos == mode.flux else mode.flux
+    target = {"auto": pos, "flux": mode.flux, "charge": mode.charge}[representation]
+
+    discrete = False
+    if target == pos:                       # potential representation
+        xs, dens_list, xsym, Vcurve = x, [np.abs(psis[:, i]) ** 2
+                                          for i in range(len(energies))], pos, V
+    elif mode.kind == _num.EXTENDED:        # conjugate of an extended mode: FT
+        dx = x[1] - x[0]
+        xs = np.fft.fftshift(np.fft.fftfreq(len(x), d=dx)) * 2 * np.pi
+        ft = np.fft.fftshift(np.fft.fft(psis, axis=0), axes=0)
+        dens_list = [np.abs(ft[:, i]) ** 2 for i in range(len(energies))]
+        # zoom to where the density actually lives
+        tot = sum(dens_list)
+        keep = tot > 1e-4 * tot.max()
+        lo, hi = xs[keep][0], xs[keep][-1]
+        sel = (xs >= 1.3 * lo) & (xs <= 1.3 * hi)
+        xs = xs[sel]; dens_list = [d[sel] for d in dens_list]
+        xsym, Vcurve = conj, None
+    else:                                   # conjugate of a periodic mode: integer dist.
+        _, vecs = _num.eigensystem(result, params, n_levels, cutoffs,
+                                   offsets, mode_types)
+        ncut = (vecs.shape[0] - 1) // 2
+        xs = np.arange(-ncut, ncut + 1)
+        dens_list = [np.abs(vecs[:, i]) ** 2 for i in range(len(energies))]
+        xsym, Vcurve, discrete = conj, None, True
+
+    if Vcurve is not None:
+        ax.plot(xs, Vcurve, color="k", lw=1.5, zorder=5)
+    span = ((Vcurve.max() - Vcurve.min()) if Vcurve is not None else
+            (energies[-1] - energies[0])) or 1.0
     if scale is None:
         gaps = np.diff(energies)
         scale = 0.7 * (np.median(gaps) if len(gaps) and np.median(gaps) > 0
                        else 0.1 * span)
-    for i in range(len(energies)):
-        dens = np.abs(psis[:, i]) ** 2
+    for i, dens in enumerate(dens_list):
         dens = dens / (dens.max() or 1.0) * scale
         ax.axhline(energies[i], color=f"C{i}", lw=0.6, ls=":", alpha=0.6)
-        ax.fill_between(x, energies[i], energies[i] + dens, color=f"C{i}",
-                        alpha=0.5, label=f"{i}")
-    ax.set_xlabel(f"${sp.latex(xsym)}$")          # flux for a JJ, charge for its QPS dual
+        if discrete:
+            ax.plot(xs, energies[i] + dens, color=f"C{i}", marker="o", ms=3,
+                    lw=0.8, label=f"{i}")
+        else:
+            ax.fill_between(xs, energies[i], energies[i] + dens, color=f"C{i}",
+                            alpha=0.5, label=f"{i}")
+    ax.set_xlabel(f"${sp.latex(xsym)}$")
     ax.set_ylabel("energy")
-    ax.set_title("Potential and eigenstates")
+    ax.set_title("Potential and eigenstates" if Vcurve is not None
+                 else f"Eigenstate densities in {xsym}")
     ax.legend(title="level", fontsize=8, ncol=2)
     return _save(ax, path)
 

@@ -116,7 +116,7 @@ def compute(netlist_text, canonical=True, schematic_path=None, draw=True):
     }
 
 
-def numerical_summary(netlist_text, params, n_levels=6, canonical=True):
+def numerical_summary(netlist_text, params, n_levels=6, canonical=True, cutoffs=None):
     """Headless numerical pipeline used by the UI (and easy to test).
 
     Parses *netlist_text*, reduces, classifies the modes and diagonalizes with
@@ -131,17 +131,17 @@ def numerical_summary(netlist_text, params, n_levels=6, canonical=True):
     ground = getattr(ckt, "ground", None)
     open_loops = getattr(ckt, "open_loops", None) or None
     result = ckt.hamiltonian(ground=ground, open_loops=open_loops, canonical=canonical)
-    return summary_from_result(result, params, n_levels)
+    return summary_from_result(result, params, n_levels, cutoffs=cutoffs)
 
 
-def summary_from_result(result, params, n_levels=6):
+def summary_from_result(result, params, n_levels=6, cutoffs=None):
     """Build the numerical-summary dict from an already-reduced result.
 
     Lets the UI skip the (re)reduction when the circuit is unchanged since the
     last Generate -- diagonalization then costs only the matrix build + eigh.
     """
     modes = result.modes()
-    ev = result.eigenenergies(params, n_levels=n_levels)
+    ev = result.eigenenergies(params, n_levels=n_levels, cutoffs=cutoffs)
     return {
         "result": result,
         "modes": [(m.flux, m.charge, m.kind) for m in modes],
@@ -547,11 +547,22 @@ def main():  # pragma: no cover - interactive
                     variable=units_var).grid(row=3, column=0, columnspan=3,
                                              sticky="w", pady=(4, 0))
 
+    ttk.Label(num_card, text="cutoffs:", style="Muted.TLabel").grid(
+        row=4, column=0, sticky="w", pady=(4, 0))
+    cutoffs_entry = ttk.Entry(num_card)
+    cutoffs_entry.grid(row=4, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+    cutoffs_entry.insert(0, "")     # e.g. "phi_v2=120, q_f1=61"; blank = defaults
+    ttk.Label(num_card, text="wavefunctions:", style="Muted.TLabel").grid(
+        row=5, column=0, sticky="w", pady=(4, 0))
+    wf_rep = tk.StringVar(value="auto")
+    ttk.OptionMenu(num_card, wf_rep, "auto", "auto", "flux", "charge").grid(
+        row=5, column=1, sticky="w", pady=(4, 0))
+
     ttk.Label(num_card, text="sweep:  parameter · from · to · points",
-              style="Muted.TLabel").grid(row=4, column=0, columnspan=3,
+              style="Muted.TLabel").grid(row=6, column=0, columnspan=3,
                                          sticky="w", pady=(8, 2))
     sweep_wrap = ttk.Frame(num_card)
-    sweep_wrap.grid(row=5, column=0, columnspan=3, sticky="ew")
+    sweep_wrap.grid(row=7, column=0, columnspan=3, sticky="ew")
     sweep_param = ttk.Entry(sweep_wrap, width=9); sweep_param.pack(side="left", padx=1)
     sweep_param.insert(0, "E_J")
     sweep_from = ttk.Entry(sweep_wrap, width=5); sweep_from.pack(side="left", padx=1)
@@ -816,6 +827,16 @@ def main():  # pragma: no cover - interactive
         from .__main__ import _parse_params
         return _parse_params([raw])
 
+    def _cutoffs():
+        """Parse the cutoffs box (``"phi_v2=120, q_f1=61"``) into {name: int}, or
+        None for default basis sizes."""
+        out = {}
+        for piece in cutoffs_entry.get().replace(",", " ").split():
+            if "=" in piece:
+                k, v = piece.split("=", 1)
+                out[k.strip()] = int(float(v))
+        return out or None
+
     def _current_result(text):
         """The reduction for *text*, reusing the last Generate when unchanged."""
         if last["text"] == text and last["out"]:
@@ -831,6 +852,7 @@ def main():  # pragma: no cover - interactive
         try:
             params = _diag_params(text)
             n = max(1, int(levels_entry.get() or 6))
+            cutoffs = _cutoffs()
         except Exception as exc:
             report_error(exc)
             return
@@ -842,13 +864,14 @@ def main():  # pragma: no cover - interactive
 
         def work():
             if cached is not None:
-                return summary_from_result(cached["result"], params, n_levels=n)
-            return numerical_summary(text, params, n_levels=n)
+                return summary_from_result(cached["result"], params, n_levels=n,
+                                           cutoffs=cutoffs)
+            return numerical_summary(text, params, n_levels=n, cutoffs=cutoffs)
 
-        run_async(work, lambda summ: _show_diag(summ, params, n, unit),
+        run_async(work, lambda summ: _show_diag(summ, params, n, unit, cutoffs),
                   busy_text="diagonalizing…")
 
-    def _show_diag(summ, params, n, unit=""):
+    def _show_diag(summ, params, n, unit="", cutoffs=None):
         import re as _re
         clear_error()
         last_diag["summary"] = summ
@@ -867,7 +890,8 @@ def main():  # pragma: no cover - interactive
         me = []
         for _flux, charge, _kind in summ["modes"]:
             try:
-                M = res.matrix_elements(charge, params, n_levels=min(n, 4))
+                M = res.matrix_elements(charge, params, n_levels=min(n, 4),
+                                        cutoffs=cutoffs)
                 me.append(f"  |<0|{charge}|1>| = {abs(M[0, 1]):.4f}")
             except Exception:
                 pass
@@ -880,7 +904,7 @@ def main():  # pragma: no cover - interactive
             lines.append("\nbias sensitivity (d f01/d bias):")
             for bsym in biases:
                 try:
-                    df, _d2 = res.transition_sensitivity(bsym, params)
+                    df, _d2 = res.transition_sensitivity(bsym, params, cutoffs=cutoffs)
                     tag = "   <- sweet spot" if abs(df) < 1e-3 else ""
                     lines.append(f"  {bsym}: {df:+.4f}{u}/unit{tag}")
                 except Exception:
@@ -902,15 +926,18 @@ def main():  # pragma: no cover - interactive
         drew = False
         if summ["single_mode"]:
             try:
-                summ["result"].plot_potential_wavefunctions(params, n_levels=n, ax=pax)
+                summ["result"].plot_potential_wavefunctions(
+                    params, n_levels=n, ax=pax, cutoffs=cutoffs,
+                    representation=wf_rep.get())
                 drew = True
             except NotImplementedError:
                 status.config(
-                    text="no scalar potential (gyrator cross term); showing levels",
+                    text="flux–charge coupling (gyrator); showing levels instead",
                     foreground="#b26a00")
         if not drew:
             try:
-                summ["result"].plot_energy_levels(params, n_levels=n, ax=pax)
+                summ["result"].plot_energy_levels(params, n_levels=n, ax=pax,
+                                                  cutoffs=cutoffs)
             except Exception as exc:
                 pax.text(0.5, 0.5, f"plot unavailable:\n{exc}", ha="center",
                          va="center", wrap=True, fontsize=9)
@@ -944,6 +971,7 @@ def main():  # pragma: no cover - interactive
             param = sweep_param.get().strip()
             lo, hi = float(sweep_from.get()), float(sweep_to.get())
             pts = max(2, int(sweep_pts.get() or 41))
+            cutoffs = _cutoffs()
             res = _current_result(text)
         except Exception as exc:
             report_error(exc)
@@ -962,7 +990,7 @@ def main():  # pragma: no cover - interactive
             ax = f.add_subplot(111)
             try:
                 res.plot_spectrum(param, vals, base, n_levels=n, ax=ax,
-                                  quantity=quantity)
+                                  quantity=quantity, cutoffs=cutoffs)
                 if unit:
                     ax.set_ylabel(ax.get_ylabel() + f"  ({unit})")
             except Exception as exc:

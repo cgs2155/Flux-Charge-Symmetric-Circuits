@@ -731,6 +731,31 @@ def test_library_circuits_reduce_and_diagonalize():
         assert np.all(np.isreal(ev)), name
 
 
+def test_wavefunction_representation_toggle():
+    """The wavefunction plot can be shown in the flux or the charge
+    representation (the latter via Fourier transform / charge distribution)."""
+    _require_numpy()
+    import matplotlib
+    matplotlib.use("Agg")
+    from fluxcharge import library
+
+    # fluxonium: potential lives in flux; charge view is the FT of the states
+    fx = library.fluxonium().hamiltonian(ground="v1", open_loops="f3", canonical=True)
+    p = {"E_J": 5.0, "L": 1.0, "C": 1.0, "phi_ext_f1": 0.0}
+    ax_phi = fx.plot_potential_wavefunctions(p, n_levels=3, cutoffs={"phi_v2": 80},
+                                             representation="flux")
+    assert "phi" in ax_phi.get_xlabel()
+    ax_q = fx.plot_potential_wavefunctions(p, n_levels=3, cutoffs={"phi_v2": 80},
+                                           representation="charge")
+    assert "q_" in ax_q.get_xlabel()
+
+    # transmon: charge view is the discrete Cooper-pair-number distribution
+    tr = library.transmon().hamiltonian(ground="v1")
+    ax_n = tr.plot_potential_wavefunctions({"E_J": 15.0, "C": 1.0}, n_levels=3,
+                                           cutoffs={"q_f1": 61}, representation="charge")
+    assert "q_" in ax_n.get_xlabel()
+
+
 def test_sweep_quantities():
     """plot_spectrum supports levels / transitions / anharmonicity; the
     transmon anharmonicity tends to -E_C."""
