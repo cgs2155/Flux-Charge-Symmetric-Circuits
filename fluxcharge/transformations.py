@@ -83,6 +83,16 @@ def dual(circuit: Circuit) -> Circuit:
     as for the transmon), the outer face is completed automatically; any circuit
     that reduces to a Hamiltonian therefore also dualizes.
     """
+    # loops are optional: derive them from the planar embedding if none were
+    # declared (e.g. a circuit imported from scqubits).  Duality needs faces, so
+    # refuse a non-planar circuit with a clear message.
+    if not circuit._loops:
+        circuit.infer_loops()
+    if circuit._planar is False:
+        raise ValueError(
+            "cannot dualize a non-planar circuit: the LCG duality is the planar "
+            "vertices<->faces duality, and a non-planar graph has no face "
+            "structure (its Hamiltonian still reduces, but it has no dual).")
     circuit.validate()
 
     # B[l, e]: which faces each edge borders, with sign (outer face completed)

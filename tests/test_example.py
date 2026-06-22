@@ -870,6 +870,36 @@ def test_bias_netlist_round_trip():
     assert str(rt._offset_charge["v2"]) == "n_g"
 
 
+def test_dual_infers_loops_when_undeclared():
+    """dual() auto-infers the planar faces when no loops are declared (e.g. a
+    circuit imported from scqubits, whose netlist has no loop lines)."""
+    from fluxcharge import dual
+    ckt = Circuit()                       # no add_loop
+    ckt.add_josephson("e1", "1", "0", EJ="E_J")
+    ckt.add_capacitor("e2", "1", "0", C="C")
+    d = dual(ckt)                         # should not raise
+    kinds = {type(el).__name__ for el in d._elements}
+    assert "QuantumPhaseSlip" in kinds and "Inductor" in kinds   # JJ->QPS, C->L
+    assert d.hamiltonian(strict=False, canonical=True).complete
+
+
+def test_dual_rejects_nonplanar():
+    """A non-planar circuit has no faces, so dual() refuses with a clear error."""
+    import warnings
+    from fluxcharge import dual
+    c = Circuit()
+    nodes = ["v1", "v2", "v3", "v4", "v5"]
+    k = 0
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            k += 1
+            c.add_inductor(f"e{k}", nodes[i], nodes[j], L=f"L{k}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(ValueError):
+            dual(c)
+
+
 def test_dual_carries_bias():
     """Under the LCG dual, an offset charge on a node becomes an external flux
     through the dual loop (and vice versa)."""
