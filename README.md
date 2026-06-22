@@ -384,8 +384,12 @@ res.eigenenergies(library.fluxonium().natural_params({"E_J": "5GHz", "C": "1GHz"
 ```
 
 `transmon`, `cooper_pair_box`, `fluxonium`, `lc_resonator`, the manuscript
-`circulator`, and a quantum `phase_slip_qubit` (the LCG dual of the transmon)
-are included (`library.CIRCUITS` lists them). A guided
+`circulator`, a quantum `phase_slip_qubit` (the LCG dual of the transmon), and
+the 3-mode `zero_pi` qubit are included (`library.CIRCUITS` lists them). Note
+`zero_pi` is multi-mode and reduces in *node* coordinates (three `EXTENDED`
+modes); its spectrum is the same as a symmetry-adapted treatment but converging
+it needs a generous `cutoffs=` (this is where tools using symmetry-adapted
+coordinates are more efficient). A guided
 [`examples/tutorial.ipynb`](examples/tutorial.ipynb) walks from a symbolic
 Hamiltonian to spectra, flux/charge sweeps, wavefunctions, the gyrator
 circulator, the phase-slip duality, and matrix elements / T1; the same content

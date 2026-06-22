@@ -85,6 +85,34 @@ def phase_slip_qubit(charge_bias: bool = True) -> Circuit:
     return c
 
 
+def zero_pi() -> Circuit:
+    """The 0-pi qubit: two Josephson junctions (with junction capacitances), two
+    superinductors and two large shunt capacitors on a 4-node ring (``E_J``,
+    ``C_J``, ``L``, ``C``).
+
+    A protected qubit, and a good multi-mode showcase: it reduces to three
+    degrees of freedom.  In fluxcharge's node coordinates all three classify as
+    ``EXTENDED`` (scqubits uses symmetry-adapted coordinates where one mode is
+    periodic and one is a decoupled harmonic; the spectrum is the same, the
+    decomposition differs).  Converged diagonalization is demanding -- three
+    modes, with a very soft inductive mode -- so set generous ``cutoffs=`` and
+    expect a large basis (this is where symmetry-adapted tools are more
+    efficient).
+    """
+    c = Circuit()
+    c.title = "Zero-pi"
+    c.add_josephson("e1", "n1", "n2", EJ="E_J")
+    c.add_capacitor("cJ1", "n1", "n2", C="C_J")
+    c.add_josephson("e2", "n3", "n4", EJ="E_J")
+    c.add_capacitor("cJ2", "n3", "n4", C="C_J")
+    c.add_inductor("e3", "n2", "n3", L="L")
+    c.add_inductor("e4", "n4", "n1", L="L")
+    c.add_capacitor("e5", "n1", "n3", C="C")
+    c.add_capacitor("e6", "n2", "n4", C="C")
+    c.ground = "n1"
+    return c
+
+
 def circulator() -> Circuit:
     """The manuscript's non-reciprocal circulator: a Josephson junction and two
     capacitors coupled by a gyrator (``E_J``, ``C``, ``G``)."""
@@ -109,5 +137,6 @@ CIRCUITS = {
     "cooper_pair_box": cooper_pair_box,
     "fluxonium": fluxonium,
     "phase_slip_qubit": phase_slip_qubit,
+    "zero_pi": zero_pi,
     "circulator": circulator,
 }

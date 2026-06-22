@@ -51,6 +51,18 @@ if __name__ == "__main__":
     show("Phase-slip qubit vs transmon (duality)", rq.H)
     print(f"  max |level difference| = {np.max(np.abs(ev_q-ev_t)):.2e}  (should be ~0)")
 
+    # --- zero-pi: a 3-mode protected qubit ---
+    zp = library.zero_pi()
+    rz = zp.hamiltonian(ground="n1", strict=False, canonical=True)
+    show("Zero-pi (3 modes)", rz.H)
+    print("  modes (auto-classified):", [(str(m.flux), str(m.charge), m.kind)
+                                          for m in rz.modes()])
+    cut = {str(b): 6 for _a, b, _c in rz.conjugate_pairs}     # small basis (not converged)
+    evz = rz.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
+                           n_levels=4, cutoffs=cut)
+    print("  spectrum (cutoff 6/mode -- NOT converged; raise cutoffs to refine):",
+          np.round(evz - evz[0], 4))
+
     # --- circulator: non-reciprocal, gyrator cross term ---
     cir = library.circulator()
     rc = cir.hamiltonian(ground="v1", open_loops="f4", canonical=True)

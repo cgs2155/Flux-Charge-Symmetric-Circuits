@@ -233,14 +233,22 @@ class _OperatorBuilder:
         self.Hnum = sp.expand(result.H.subs(self.params))
 
         # per-mode local dimension
-        default = {EXTENDED: 30, PERIODIC: 31, DUAL_PERIODIC: 31, FREE: 31}
+        # default basis size per mode, scaled down for many modes so the
+        # tensor-product dimension stays tractable (a single mode keeps 30/31;
+        # 3 modes -> ~16 each, etc.).  Override per mode with cutoffs=.
+        base = {EXTENDED: 30, PERIODIC: 31, DUAL_PERIODIC: 31, FREE: 31}
+        n = max(1, len(self.modes))
+        # cap the per-mode default so the tensor dimension (hence the matrix
+        # build, which does an expm per cosine) stays responsive for multi-mode
+        # circuits; the user raises cutoffs= deliberately to converge.
+        cap = max(7, int(round(1000 ** (1.0 / n))))
         self.dims: List[int] = []
         self.cut = cutoffs or {}
         for m in self.modes:
             d = self.cut.get(str(m.flux), self.cut.get(m.flux))
             if d is None:
                 d = self.cut.get(str(m.charge), self.cut.get(m.charge))
-            d = int(d) if d is not None else default[m.kind]
+            d = int(d) if d is not None else min(base[m.kind], cap)
             if m.kind != EXTENDED:        # integer basis must be odd (-ncut..ncut)
                 d = 2 * ((d - 1) // 2) + 1
             self.dims.append(d)

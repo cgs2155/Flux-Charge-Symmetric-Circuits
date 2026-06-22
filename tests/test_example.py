@@ -714,7 +714,8 @@ def test_library_circuits_reduce_and_diagonalize():
     _require_numpy()
     import numpy as np
     from fluxcharge import library
-    defaults = {"E_J": "12GHz", "C": "70fF", "L": "150nH", "E_S": "12GHz", "G": 0.5}
+    defaults = {"E_J": "12GHz", "C": "70fF", "C_J": "30fF", "L": "150nH",
+                "E_S": "12GHz", "G": 0.5}
     for name, ctor in library.CIRCUITS.items():
         ckt = ctor()
         res = ckt.hamiltonian(ground=getattr(ckt, "ground", None),
@@ -723,12 +724,31 @@ def test_library_circuits_reduce_and_diagonalize():
         assert res.complete, name
         needed = {str(s) for s in res.H.free_symbols} - {str(c) for c in res.coordinates}
         phys = {k: v for k, v in defaults.items() if k in needed}
-        # bias symbols (n_g_*, phi_ext_*) default to 0
         params = ckt.natural_params(phys)
         for s in needed:
-            params.setdefault(s, 0.0)
-        ev = res.eigenenergies(params, n_levels=3)
+            params.setdefault(s, 0.0)        # bias symbols (n_g_*, phi_ext_*) -> 0
+        # small explicit cutoffs so multi-mode circuits (zero-pi) stay fast; we
+        # only check the run succeeds and the spectrum is real, not convergence
+        cut = {str(b): 6 for _a, b, _c in res.conjugate_pairs}
+        ev = res.eigenenergies(params, n_levels=3, cutoffs=cut)
         assert np.all(np.isreal(ev)), name
+
+
+def test_zero_pi_reduces_to_three_extended_modes():
+    """The 0-pi qubit reduces completely to three modes (all EXTENDED in node
+    coordinates) with the two Josephson cosines, and diagonalizes."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import library
+    res = library.zero_pi().hamiltonian(ground="n1", strict=False, canonical=True)
+    assert res.complete
+    modes = res.modes()
+    assert len(modes) == 3 and all(m.kind == "extended" for m in modes)
+    assert sum(1 for _ in res.H.atoms(sp.cos)) == 2          # two junctions
+    cut = {str(b): 5 for _a, b, _c in res.conjugate_pairs}   # tiny basis, just runs
+    ev = res.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
+                           n_levels=3, cutoffs=cut)
+    assert np.all(np.isreal(ev))
 
 
 def test_wavefunction_representation_toggle():
