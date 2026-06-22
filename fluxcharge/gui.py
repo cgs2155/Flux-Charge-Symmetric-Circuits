@@ -194,6 +194,52 @@ def _hamiltonian_latex(expr, operators):
     return sp.latex(expr, symbol_names=names)
 
 
+def _split_latex_terms(latex):
+    """Split a LaTeX sum into its top-level (brace-depth-0) additive terms,
+    each carrying its leading sign, so a long Hamiltonian can be wrapped."""
+    terms, cur, depth = [], "", 0
+    for ch in latex:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        if depth == 0 and ch in "+-" and cur.strip():
+            terms.append(cur.strip())
+            cur = ch
+        else:
+            cur += ch
+    if cur.strip():
+        terms.append(cur.strip())
+    return terms
+
+
+def _mt_width(latex, fontsize, dpi):
+    """Rendered width (px) of a mathtext string, for line wrapping."""
+    try:
+        from matplotlib.mathtext import MathTextParser
+        from matplotlib.font_manager import FontProperties
+        return MathTextParser("agg").parse(
+            f"${latex}$", dpi=dpi, prop=FontProperties(size=fontsize))[2]
+    except Exception:
+        return len(latex) * fontsize * 0.55          # crude fallback
+
+
+def wrap_latex_sum(body, prefix, max_px, fontsize, dpi):
+    """Wrap a LaTeX sum *body* (prefixed by *prefix* on the first line) into a
+    list of lines each no wider than *max_px*; continuation lines are indented."""
+    terms = _split_latex_terms(body) or [body]
+    lines, cur = [], (prefix + " " + terms[0]).strip()
+    for t in terms[1:]:
+        trial = cur + " " + t
+        if _mt_width(trial, fontsize, dpi) > max_px:
+            lines.append(cur)
+            cur = r"\quad " + t
+        else:
+            cur = trial
+    lines.append(cur)
+    return lines
+
+
 # ----------------------------------------------------------------------
 # quality-of-life helpers (pure functions -- testable without a display)
 # ----------------------------------------------------------------------
@@ -693,13 +739,31 @@ def main():  # pragma: no cover - interactive
 
         ax_h.clear(); ax_h.axis("off")
         label = "Hamiltonian (energy units)" if e_units else "Hamiltonian"
-        ax_h.text(0.0, 0.95, label, transform=ax_h.transAxes, ha="left",
+        ax_h.text(0.0, 0.98, label, transform=ax_h.transAxes, ha="left",
                   va="top", fontsize=9, color=MUTED, fontfamily="sans-serif")
-        ax_h.text(0.5, 0.55, f"$\\hat{{H}} = {H_l}$",
-                  ha="center", va="center", fontsize=16, color=INK)
+        # wrap a long Hamiltonian over several lines and shrink to fit the panel
+        try:
+            dpi = fig.dpi
+            pos = ax_h.get_position()
+            fw, fh = fig.get_size_inches()
+            max_px = pos.width * fw * dpi * 0.97
+            avail_h = pos.height * fh * dpi * 0.74      # leave room for the label
+            lines, fs = None, 16
+            for fs in range(16, 5, -1):
+                lines = wrap_latex_sum(H_l, r"\hat{H} =", max_px, fs, dpi)
+                if len(lines) * fs * 1.7 * dpi / 72.0 <= avail_h:
+                    break
+            n = len(lines)
+            ys = [0.55] if n == 1 else [0.78 - i * (0.72 / (n - 1)) for i in range(n)]
+            for line, y in zip(lines, ys):
+                ax_h.text(0.5, y, f"${line}$", ha="center", va="center",
+                          fontsize=fs, color=INK)
+        except Exception:
+            ax_h.text(0.5, 0.55, f"$\\hat{{H}} = {H_l}$", ha="center",
+                      va="center", fontsize=12, color=INK)
         if e_units and out["energy_defs_latex"]:
-            ax_h.text(0.5, 0.06, f"$({out['energy_defs_latex']})$",
-                      ha="center", va="center", fontsize=9, color=MUTED)
+            ax_h.text(0.5, 0.03, f"$({out['energy_defs_latex']})$",
+                      ha="center", va="center", fontsize=8, color=MUTED)
 
         ax_comm.clear(); ax_comm.axis("off")
         if comm_l:

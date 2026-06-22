@@ -538,6 +538,18 @@ def test_numerics_default_cutoffs_all_mode_kinds():
     assert len(ev) == 4 and np.all(np.isreal(ev))
 
 
+def test_latex_wrapping_helpers():
+    """A long Hamiltonian splits into top-level terms (not inside fractions) and
+    wraps onto multiple lines so it fits the GUI panel."""
+    from fluxcharge.gui import _split_latex_terms, wrap_latex_sum
+    terms = _split_latex_terms(r"a + b - \frac{c+d}{e} + f")
+    assert len(terms) == 4                       # the c+d inside \frac is not split
+    assert any("c+d" in t for t in terms)
+    long = " + ".join(f"x_{i}" for i in range(30))
+    lines = wrap_latex_sum(long, r"\hat{H} =", max_px=60, fontsize=12, dpi=100)
+    assert len(lines) > 1 and lines[0].startswith(r"\hat{H} =")
+
+
 def test_gui_energy_units_form():
     """The familiar-units rewrite turns the transmon into 4 E_C n^2 - E_J cos(phi)
     and the fluxonium into 4 E_C n^2 + E_L phi^2/2 - E_J cos(phi), relabelling the
