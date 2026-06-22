@@ -1,0 +1,3 @@
+# scqubits-format transmon: junction (EJ in GHz) + its capacitance (in fF)
+branches:
+- [JJ, 1, 0, EJ = 15 GHz, EC = 90 fF]

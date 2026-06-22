@@ -1,0 +1,4 @@
+# scqubits-format fluxonium: junction + superinductor + shunt capacitor
+branches:
+- [JJ, 1, 2, EJ = 10 GHz, EC = 50 fF]
+- [L,  1, 2, EL = 200 nH]
