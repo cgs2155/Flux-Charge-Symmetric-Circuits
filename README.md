@@ -389,6 +389,26 @@ Hamiltonian to spectra, flux/charge sweeps, wavefunctions, the gyrator
 circulator, the phase-slip duality, and matrix elements / T1; the same content
 runs as [`examples/qubit_library.py`](examples/qubit_library.py).
 
+### Importing scqubits circuits
+
+`from_scqubits_yaml` reads scqubits' branch YAML (`C` / `L` / `JJ` branches,
+node `0` = ground) into a fluxcharge circuit, so existing scqubits circuits drop
+in (loops are auto-inferred, nothing else needed):
+
+```python
+from fluxcharge import from_scqubits_yaml
+ckt, params = from_scqubits_yaml("branches:\n- [JJ, 1, 0, 15]\n- [C, 1, 0, 0.3]\n")
+ckt.hamiltonian(ground="0").eigenenergies(params)        # GHz, matches scqubits
+# ... then add what scqubits cannot represent:
+ckt.add_qps("qps", "1", "0", ES="E_S")                   # a quantum phase slip
+```
+
+Branch energies use the textbook convention (`E_C = e²/2C`, `E_L = (Φ₀/2π)²/L`),
+so imports match scqubits' predefined `Transmon`/`Fluxonium` classes to
+machine precision (see [`examples/compare_scqubits.py`](examples/compare_scqubits.py)).
+Only reciprocal `C`/`L`/`JJ` branches exist in scqubits; once imported you can
+add gyrators and quantum phase slips, which it has no element for.
+
 ### Matrix elements and coherence
 
 `result.matrix_elements("q_f1", params)` gives exact `<i|n|j>`;

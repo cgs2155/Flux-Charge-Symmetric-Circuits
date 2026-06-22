@@ -40,6 +40,7 @@ from .reduction import Reducer, ReductionResult
 from .visualize import circuit_to_networkx, draw_circuit
 from .schematic import draw_schematic
 from .netlist import from_netlist, parse_netlist, to_netlist
+from .interop import from_scqubits_yaml
 from .transformations import dual
 from .numerics import (
     classify_modes,
@@ -83,6 +84,7 @@ __all__ = [
     "from_netlist",
     "parse_netlist",
     "to_netlist",
+    "from_scqubits_yaml",
     "dual",
     # numerical analysis
     "classify_modes",

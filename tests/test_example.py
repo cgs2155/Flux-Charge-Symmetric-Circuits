@@ -584,6 +584,39 @@ def _charge_cutoffs(result, n=81):
     return {str(b): n for _a, b, _c in result.conjugate_pairs}
 
 
+def test_scqubits_yaml_import():
+    """Import scqubits' branch YAML: a JJ + capacitor transmon and a fluxonium,
+    checking the resulting symbolic Hamiltonian and that node 0 is ground."""
+    from fluxcharge import from_scqubits_yaml
+    EC, EJ, EL = sp.symbols("EC EJ EL")
+
+    # transmon: JJ (no junction cap) shunted by a capacitor, node 0 = ground
+    ckt, params = from_scqubits_yaml("branches:\n- [JJ, 1, 0, EJ]\n- [C, 1, 0, EC]\n")
+    assert ckt.ground == "0"
+    res = ckt.hamiltonian(ground="0", canonical=True)
+    (a, b, _), = res.conjugate_pairs
+    q = b if str(b).startswith("q_") else a
+    phi = a if q is b else b
+    # C -> 1/(8 EC) so q^2/2C = 4 EC q^2; matches 4 E_C n^2 - E_J cos(phi)
+    assert sp.simplify(res.H - (4 * EC * q ** 2 - EJ * sp.cos(phi))) == 0
+
+    # a JJ branch with a junction EC adds a parallel capacitor (extra edge)
+    ckt2, _ = from_scqubits_yaml("branches:\n- [JJ, 1, 0, EJ, EC]\n")
+    assert len(ckt2.edges) == 2          # junction + its capacitor
+
+    # fluxonium imports as JJ + L + C with the right parameters present
+    ckt3, p3 = from_scqubits_yaml(
+        "branches:\n- [JJ,1,2,EJ,1e15]\n- [L,1,2,EL]\n- [C,1,2,EC]\n")
+    r3 = ckt3.hamiltonian(ground="1", strict=False, canonical=True)
+    assert r3.complete
+    syms = {str(s) for s in r3.H.free_symbols}
+    assert {"EJ", "EL", "EC"} <= syms
+
+    # unsupported branch type is rejected with a clear error
+    with pytest.raises(NotImplementedError):
+        from_scqubits_yaml("branches:\n- [ML, 1, 2, 0.1]\n")
+
+
 def test_infer_loops_reproduces_hand_declared_spectra():
     """Auto-inferred loops give the same spectrum as hand-declared faces, for
     the transmon, fluxonium and the gyrator circulator."""
