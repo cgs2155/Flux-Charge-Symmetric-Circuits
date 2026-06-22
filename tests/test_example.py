@@ -731,6 +731,32 @@ def test_library_circuits_reduce_and_diagonalize():
         assert np.all(np.isreal(ev)), name
 
 
+def test_sweep_quantities():
+    """plot_spectrum supports levels / transitions / anharmonicity; the
+    transmon anharmonicity tends to -E_C."""
+    _require_numpy()
+    import matplotlib
+    matplotlib.use("Agg")
+    import numpy as np
+    from fluxcharge import library
+
+    tr = library.transmon().hamiltonian(ground="v1")
+    spec = tr.sweep("E_J", np.array([20.0, 30.0]), {"C": 1.0}, n_levels=3,
+                    cutoffs={"q_f1": 61})
+    anh = (spec[:, 2] - spec[:, 1]) - (spec[:, 1] - spec[:, 0])
+    assert np.all(anh < 0)                       # negative (transmon)
+    assert abs(anh[-1] + 1.0 / 8.0) < 0.02       # -> -E_C = -1/(8C) = -0.125
+
+    for q in ("levels", "transitions", "anharmonicity"):
+        ax = tr.plot_spectrum("E_J", np.linspace(5, 30, 6), {"C": 1.0},
+                              n_levels=3, cutoffs={"q_f1": 61}, quantity=q)
+        assert ax is not None
+    # anharmonicity needs >= 3 levels
+    with pytest.raises(ValueError):
+        tr.plot_spectrum("E_J", np.linspace(5, 30, 6), {"C": 1.0},
+                         n_levels=2, cutoffs={"q_f1": 61}, quantity="anharmonicity")
+
+
 def test_to_qutip_matches_and_supports_gyrator():
     """to_qutip exports a Qobj Hamiltonian whose spectrum matches fluxcharge,
     including a gyrator circuit (which scqubits cannot represent)."""

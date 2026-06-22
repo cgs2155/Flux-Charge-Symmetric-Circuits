@@ -53,23 +53,49 @@ def plot_energy_levels(result, params=None, n_levels=8, cutoffs=None,
 
 def plot_spectrum(result, parameter, values, params=None, n_levels=6,
                   cutoffs=None, offsets=None, mode_types=None, relative=False,
-                  ax=None, path=None):
-    """Plot eigenenergies versus a swept *parameter* over *values*.
+                  ax=None, path=None, quantity="levels"):
+    """Plot a spectral quantity versus a swept *parameter* over *values*.
 
     *parameter* may be a circuit symbol (e.g. ``"E_J"``) or an offset-charge
-    symbol (e.g. ``"q_f1"`` for the transmon charge dispersion).
+    symbol (e.g. ``"q_f1"`` for the transmon charge dispersion).  *quantity*
+    selects what is plotted (all derived from the same diagonalizations):
+
+    * ``"levels"`` -- the eigenenergies ``E_j`` (with *relative* subtracting the
+      ground state);
+    * ``"transitions"`` -- the transition frequencies ``f_{0->j} = E_j - E_0``
+      from the ground state (the trivial ``j=0`` line is dropped);
+    * ``"anharmonicity"`` -- ``alpha = (E_2 - E_1) - (E_1 - E_0)`` (needs >= 3
+      levels), the quantity that sets gate leakage.
     """
     import numpy as np
     ax = _ax(ax)
     values = np.asarray(values, dtype=float)
     spec = _num.sweep(result, parameter, values, params, n_levels, cutoffs,
-                      offsets, mode_types, relative=relative)
-    for k in range(spec.shape[1]):
-        ax.plot(values, spec[:, k], label=f"{k}")
-    ax.set_xlabel(f"${sp.latex(sp.sympify(parameter))}$")
-    ax.set_ylabel("energy" + (" (rel. to ground)" if relative else ""))
-    ax.set_title("Spectrum vs " + str(parameter))
-    ax.legend(title="level", fontsize=8, ncol=2)
+                      offsets, mode_types, relative=False)
+    xlabel = f"${sp.latex(sp.sympify(parameter))}$"
+
+    if quantity == "transitions":
+        for k in range(1, spec.shape[1]):
+            ax.plot(values, spec[:, k] - spec[:, 0], label=f"0→{k}")
+        ax.set_ylabel("transition frequency")
+        ax.set_title(f"Transitions vs {parameter}")
+        ax.legend(title="transition", fontsize=8, ncol=2)
+    elif quantity == "anharmonicity":
+        if spec.shape[1] < 3:
+            raise ValueError("anharmonicity needs at least 3 levels")
+        alpha = (spec[:, 2] - spec[:, 1]) - (spec[:, 1] - spec[:, 0])
+        ax.plot(values, alpha, color="C3")
+        ax.axhline(0.0, color="0.7", lw=0.6, ls=":")
+        ax.set_ylabel(r"anharmonicity $\alpha = f_{12}-f_{01}$")
+        ax.set_title(f"Anharmonicity vs {parameter}")
+    else:                                              # "levels"
+        base = spec[:, 0] if relative else 0.0
+        for k in range(spec.shape[1]):
+            ax.plot(values, spec[:, k] - base, label=f"{k}")
+        ax.set_ylabel("energy" + (" (rel. to ground)" if relative else ""))
+        ax.set_title(f"Spectrum vs {parameter}")
+        ax.legend(title="level", fontsize=8, ncol=2)
+    ax.set_xlabel(xlabel)
     return _save(ax, path)
 
 

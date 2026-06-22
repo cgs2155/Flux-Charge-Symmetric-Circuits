@@ -560,6 +560,9 @@ def main():  # pragma: no cover - interactive
     sweep_to.insert(0, "30")
     sweep_pts = ttk.Entry(sweep_wrap, width=5); sweep_pts.pack(side="left", padx=1)
     sweep_pts.insert(0, "41")
+    sweep_quantity = tk.StringVar(value="levels")
+    ttk.OptionMenu(sweep_wrap, sweep_quantity, "levels",
+                   "levels", "transitions", "anharmonicity").pack(side="left", padx=2)
     ttk.Button(sweep_wrap, text="Sweep", command=lambda: sweep_plot()).pack(
         side="left", padx=(4, 0))
 
@@ -946,6 +949,7 @@ def main():  # pragma: no cover - interactive
             report_error(exc)
             return
         unit = "GHz" if units_var.get() else ""
+        quantity = sweep_quantity.get()
         vals = np.linspace(lo, hi, pts)
         busy_on(f"sweeping {param}…")
 
@@ -957,9 +961,10 @@ def main():  # pragma: no cover - interactive
             f.patch.set_facecolor(SURFACE)
             ax = f.add_subplot(111)
             try:
-                res.plot_spectrum(param, vals, base, n_levels=n, ax=ax)
+                res.plot_spectrum(param, vals, base, n_levels=n, ax=ax,
+                                  quantity=quantity)
                 if unit:
-                    ax.set_ylabel(f"energy ({unit})")
+                    ax.set_ylabel(ax.get_ylabel() + f"  ({unit})")
             except Exception as exc:
                 busy_off()
                 win.destroy()
