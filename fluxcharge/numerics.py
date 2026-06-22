@@ -440,6 +440,46 @@ def eigenenergies(result, params=None, n_levels=6, cutoffs=None, offsets=None,
     return eigensystem(result, params, n_levels, cutoffs, offsets, mode_types)[0]
 
 
+def to_qutip(result, params=None, cutoffs=None, offsets=None, mode_types=None):
+    """Export the reduced Hamiltonian and mode operators as QuTiP objects.
+
+    Returns a dict with:
+
+    * ``"H"`` -- the Hamiltonian as a ``qutip.Qobj`` (with tensor ``dims`` set
+      per mode, so QuTiP's ``ptrace``/composite tools work);
+    * ``"operators"`` -- ``{name: Qobj}`` for each mode's charge / flux operator
+      and, for a compact (periodic) coordinate ``x``, the displacement
+      ``e^{i x}`` (keyed ``"expi_<x>"``);
+    * ``"modes"`` -- the ``(flux, charge, kind)`` list;
+    * ``"dims"`` -- the per-mode Hilbert-space dimensions.
+
+    Hands fluxcharge's quantization to QuTiP's mature engine -- time evolution,
+    Lindblad master equations, expectation values -- which, working from raw
+    operator matrices, supports the gyrator and quantum-phase-slip circuits that
+    scqubits cannot represent.  Requires ``qutip``.
+    """
+    try:
+        import qutip
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("to_qutip needs qutip: pip install qutip") from exc
+
+    result = result if result.is_canonical else result.canonical()
+    if not result.complete:
+        raise ValueError("reduction is incomplete; cannot export a Hamiltonian.")
+    builder = _OperatorBuilder(result, params, cutoffs, offsets, mode_types)
+    dims = list(builder.dims)
+    qdims = [dims, dims]
+    operators = {str(s): qutip.Qobj(M, dims=qdims) for s, M in builder.op.items()}
+    for s, S in builder.shift.items():
+        operators[f"expi_{s}"] = qutip.Qobj(S, dims=qdims)
+    return {
+        "H": qutip.Qobj(builder.matrix(), dims=qdims),
+        "operators": operators,
+        "modes": [(m.flux, m.charge, m.kind) for m in builder.modes],
+        "dims": dims,
+    }
+
+
 def sweep(result, parameter, values, params=None, n_levels=6, cutoffs=None,
           offsets=None, mode_types=None, relative=False):
     """Eigenenergies as one parameter is swept.

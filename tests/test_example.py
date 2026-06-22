@@ -731,6 +731,36 @@ def test_library_circuits_reduce_and_diagonalize():
         assert np.all(np.isreal(ev)), name
 
 
+def test_to_qutip_matches_and_supports_gyrator():
+    """to_qutip exports a Qobj Hamiltonian whose spectrum matches fluxcharge,
+    including a gyrator circuit (which scqubits cannot represent)."""
+    try:
+        import qutip  # noqa: F401
+    except ImportError:
+        if hasattr(pytest, "skip"):
+            pytest.skip("qutip not installed")
+        return
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import library
+
+    tr = library.transmon().hamiltonian(ground="v1")
+    p = {"E_J": 15.0, "C": 1.0}
+    m = tr.to_qutip(p, cutoffs={"q_f1": 61})
+    assert m["H"].isherm and "q_f1" in m["operators"]
+    ev_q = np.sort(m["H"].eigenenergies())[:5]
+    ev_f = tr.eigenenergies(p, n_levels=5, cutoffs={"q_f1": 61})
+    assert np.allclose(ev_q - ev_q[0], ev_f - ev_f[0], atol=1e-9)
+
+    # the gyrator circulator exports too (scqubits has no phi*q cross term)
+    cir = library.circulator().hamiltonian(ground="v1", open_loops="f4", canonical=True)
+    pc = {"E_J": 10.0, "C": 1.0, "G": 0.5}
+    mc = cir.to_qutip(pc, cutoffs={"phi_v2": 40})
+    ev_qc = np.sort(mc["H"].eigenenergies())[:5]
+    ev_fc = cir.eigenenergies(pc, n_levels=5, cutoffs={"phi_v2": 40})
+    assert np.allclose(ev_qc - ev_qc[0], ev_fc - ev_fc[0], atol=1e-6)
+
+
 def test_library_phase_slip_is_transmon_dual():
     """The phase-slip qubit (flux basis) and the transmon (charge basis) share a
     spectrum under E_S<->E_J, L<->C -- the LCG duality, from the library."""

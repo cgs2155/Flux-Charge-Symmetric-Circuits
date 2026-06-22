@@ -389,6 +389,24 @@ Hamiltonian to spectra, flux/charge sweeps, wavefunctions, the gyrator
 circulator, the phase-slip duality, and matrix elements / T1; the same content
 runs as [`examples/qubit_library.py`](examples/qubit_library.py).
 
+### Exporting to QuTiP
+
+`result.to_qutip(params)` returns the Hamiltonian and the per-mode charge/flux
+operators as QuTiP `Qobj`s (with tensor `dims` set), handing the quantization to
+QuTiP's engine for things fluxcharge doesn't do natively -- time evolution,
+Lindblad master equations, expectation values:
+
+```python
+m = result.to_qutip({"E_J": 10.0, "C": 1.0, "G": 0.5})   # needs qutip
+import qutip, numpy as np
+qutip.mesolve(m["H"], psi0, np.linspace(0, 100, 200), c_ops=[0.01*m["operators"]["q_f3"]])
+```
+
+Because QuTiP works from raw operator matrices, this covers the **gyrator and
+quantum-phase-slip** circuits too -- which scqubits' Hamiltonian framework cannot
+represent (it has no flux·charge cross term and no cosine of charge). The
+exported spectrum matches fluxcharge's to machine precision.
+
 ### Importing scqubits circuits
 
 `from_scqubits_yaml` reads scqubits' branch YAML (`C` / `L` / `JJ` branches,

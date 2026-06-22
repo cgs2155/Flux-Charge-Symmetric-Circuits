@@ -254,6 +254,12 @@ class ReductionResult:
         from .numerics import sweep
         return sweep(self, parameter, values, params, n_levels, **kw)
 
+    def to_qutip(self, params=None, **kw):
+        """Export the Hamiltonian and mode operators as QuTiP ``Qobj``s; see
+        :func:`fluxcharge.numerics.to_qutip`."""
+        from .numerics import to_qutip
+        return to_qutip(self, params, **kw)
+
     def plot_spectrum(self, parameter, values, params=None, **kw):
         """Plot eigenenergies versus a swept parameter (matplotlib)."""
         from .plotting import plot_spectrum
