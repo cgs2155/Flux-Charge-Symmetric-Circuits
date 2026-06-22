@@ -406,6 +406,8 @@ ckt.add_qps("qps", "1", "0", ES="E_S")                   # a quantum phase slip
 Branch energies use the textbook convention (`E_C = e²/2C`, `E_L = (Φ₀/2π)²/L`),
 so imports match scqubits' predefined `Transmon`/`Fluxonium` classes to
 machine precision (see [`examples/compare_scqubits.py`](examples/compare_scqubits.py)).
+Values may be given as energies or with scqubits' unit suffixes (`EC = 90 fF`,
+`EL = 5 nH`, `EJ = 15 GHz`), which are converted to the right energy.
 Only reciprocal `C`/`L`/`JJ` branches exist in scqubits; once imported you can
 add gyrators and quantum phase slips, which it has no element for.
 

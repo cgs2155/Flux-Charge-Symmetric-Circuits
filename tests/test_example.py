@@ -616,6 +616,15 @@ def test_scqubits_yaml_import():
     with pytest.raises(NotImplementedError):
         from_scqubits_yaml("branches:\n- [ML, 1, 2, 0.1]\n")
 
+    # unit suffixes: a capacitance (fF) -> charging energy, inductance (nH) ->
+    # inductive energy, explicit GHz -> energy as-is
+    from fluxcharge import charging_energy_GHz, inductive_energy_GHz
+    ck, pr = from_scqubits_yaml(
+        "branches:\n- [JJ, 1, 0, EJ = 15 GHz, EC = 90 fF]\n- [L, 1, 0, EL = 5 nH]\n")
+    assert abs(pr["EJ"] - 15.0) < 1e-9
+    assert abs(pr["EC"] - charging_energy_GHz(90.0)) < 1e-6     # 90 fF -> E_C
+    assert abs(pr["EL"] - inductive_energy_GHz(5.0)) < 1e-6     # 5 nH  -> E_L
+
 
 def test_infer_loops_reproduces_hand_declared_spectra():
     """Auto-inferred loops give the same spectrum as hand-declared faces, for
