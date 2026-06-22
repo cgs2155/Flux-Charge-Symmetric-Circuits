@@ -956,6 +956,31 @@ def test_dual_rejects_nonplanar():
             dual(c)
 
 
+def test_dual_fluxonium_spectrum_and_wavefunction_plot():
+    """The dual of the fluxonium has the same spectrum, and its wavefunctions
+    plot against the *charge* (the phase-slip dual puts cos on the charge, not a
+    gyrator cross term)."""
+    _require_numpy()
+    import matplotlib
+    matplotlib.use("Agg")
+    import numpy as np
+    from fluxcharge import library, dual
+
+    fx = library.fluxonium()
+    rf = fx.hamiltonian(ground="v1", open_loops="f3", canonical=True)
+    rd = dual(fx).hamiltonian(strict=False, canonical=True)
+    p = {"E_J": 5.0, "L": 1.0, "C": 1.0, "phi_ext_f1": 0.0}
+    fc = [str(b) for _a, b, _c in rf.conjugate_pairs][0]
+    dc = [str(b) for _a, b, _c in rd.conjugate_pairs][0]
+    ev_f = rf.eigenenergies(p, n_levels=6, cutoffs={fc: 90}); ev_f -= ev_f[0]
+    ev_d = rd.eigenenergies(p, n_levels=6, cutoffs={dc: 90}); ev_d -= ev_d[0]
+    assert np.allclose(ev_f, ev_d, atol=1e-6)        # duality preserves the spectrum
+
+    # the dual plots against the charge (cos of charge), not as a gyrator failure
+    ax = rd.plot_potential_wavefunctions(p, n_levels=4, cutoffs={dc: 90})
+    assert "q_" in ax.get_xlabel()
+
+
 def test_dual_carries_bias():
     """Under the LCG dual, an offset charge on a node becomes an external flux
     through the dual loop (and vice versa)."""

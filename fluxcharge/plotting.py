@@ -118,8 +118,8 @@ def plot_potential_wavefunctions(result, params=None, n_levels=5, cutoffs=None,
             f"has {len(modes)} modes. Use plot_energy_levels / plot_spectrum.")
     mode = modes[0]
     ax = _ax(ax)
-    x, V, energies, psis = _realspace_1d(result, mode, params, n_levels, cutoffs,
-                                         offsets, mode_types, grid)
+    x, V, energies, psis, xsym = _realspace_1d(result, mode, params, n_levels,
+                                               cutoffs, offsets, mode_types, grid)
     ax.plot(x, V, color="k", lw=1.5, zorder=5)
     span = (V.max() - V.min()) or 1.0
     if scale is None:
@@ -132,8 +132,7 @@ def plot_potential_wavefunctions(result, params=None, n_levels=5, cutoffs=None,
         ax.axhline(energies[i], color=f"C{i}", lw=0.6, ls=":", alpha=0.6)
         ax.fill_between(x, energies[i], energies[i] + dens, color=f"C{i}",
                         alpha=0.5, label=f"{i}")
-    is_charge = mode.kind == _num.DUAL_PERIODIC
-    ax.set_xlabel(f"${sp.latex(mode.charge if is_charge else mode.flux)}$")
+    ax.set_xlabel(f"${sp.latex(xsym)}$")          # flux for a JJ, charge for its QPS dual
     ax.set_ylabel("energy")
     ax.set_title("Potential and eigenstates")
     ax.legend(title="level", fontsize=8, ncol=2)
@@ -159,49 +158,54 @@ def _realspace_1d(result, mode, params, n_levels, cutoffs, offsets, mode_types,
     Hn = sp.expand(H.subs(params))
 
     if mode.kind == _num.EXTENDED:
-        pos, mom = mode.flux, mode.charge
-        c2 = complex(Hn.coeff(mom, 2)).real          # kinetic q^2 coefficient
-        Vexpr = sp.expand(Hn - Hn.coeff(mom, 2) * mom ** 2)
-        if Vexpr.coeff(mom, 1) != 0 or mom in Vexpr.free_symbols:
+        # The potential is a function of one coordinate; the other is the kinetic
+        # momentum.  For a Josephson junction that coordinate is the flux
+        # (cos phi); for its quantum-phase-slip dual it is the CHARGE (cos q).
+        # Pick whichever leaves the potential depending on a single coordinate.
+        pos = mom = Vexpr = None
+        for cand_pos, cand_mom in ((mode.flux, mode.charge),
+                                   (mode.charge, mode.flux)):
+            V_try = sp.expand(Hn - Hn.coeff(cand_mom, 2) * cand_mom ** 2)
+            if cand_mom not in V_try.free_symbols:
+                pos, mom, Vexpr = cand_pos, cand_mom, V_try
+                break
+        if pos is None:
             raise NotImplementedError(
-                f"the Hamiltonian has a momentum-dependent term in {mom} beyond "
-                f"the kinetic {mom}**2 (e.g. a gyrator's phi*q cross term), so it "
-                "does not split into kinetic + scalar potential V(phi); there is no "
-                "1-D potential curve to draw. Use plot_energy_levels / plot_spectrum "
-                "instead -- the eigenenergies themselves are unaffected.")
-        # half-width from the harmonic length, generously padded
-        aphi = float(complex(Hn.coeff(pos, 2)).real) or 1.0
-        L = 8.0 * (c2 / aphi) ** 0.25 if aphi > 0 else 12.0
+                "the Hamiltonian couples flux and charge (a gyrator's phi*q "
+                "cross term), so it does not split into kinetic + a potential of "
+                "a single coordinate -- there is no 1-D potential curve to draw. "
+                "Use plot_energy_levels / plot_spectrum; the eigenenergies are "
+                "unaffected.")
+        c2 = complex(Hn.coeff(mom, 2)).real          # kinetic coefficient
+        apos = float(complex(Hn.coeff(pos, 2)).real) or 1.0
+        L = 8.0 * (c2 / apos) ** 0.25 if apos > 0 else 12.0
         x = np.linspace(-L, L, grid)
         dx = x[1] - x[0]
         K = _cm_kinetic(grid, dx)                    # approximates -d^2/dx^2
         Vfun = sp.lambdify(pos, Vexpr, "numpy")
         V = np.real(Vfun(x)) * np.ones_like(x)
         Hmat = c2 * K + np.diag(V)
-    else:  # PERIODIC / DUAL_PERIODIC: angle = the compact coordinate
-        angle, integer = mode.compact, mode.discrete
-        # potential as a function of the angle (drop the integer kinetic part)
-        Vexpr = sp.expand(Hn - Hn.coeff(integer, 2) * integer ** 2)
-        Vfun = sp.lambdify(angle, Vexpr, "numpy")
-        x = np.linspace(-np.pi, np.pi, grid)
-        V = np.real(Vfun(x)) * np.ones_like(x)
-        _, vecs = _num.eigensystem(result, {str(k): v for k, v in params.items()},
-                                   n_levels, cutoffs, offsets, mode_types)
-        ncut = (vecs.shape[0] - 1) // 2
-        ns = np.arange(-ncut, ncut + 1)
-        # psi(angle) = sum_n c_n e^{i n angle}
-        basis = np.exp(1j * np.outer(x, ns)) / np.sqrt(2 * np.pi)
         with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-            psis = basis @ vecs
-        energies = _num.eigenenergies(result,
-                                      {str(k): v for k, v in params.items()},
-                                      n_levels, cutoffs, offsets, mode_types)
-        return x, V, energies, psis
+            w, v = np.linalg.eigh(0.5 * (Hmat + Hmat.conj().T))
+        n = min(n_levels, len(w))
+        return x, V, w[:n], v[:, :n], pos
 
+    # PERIODIC / DUAL_PERIODIC: angle = the compact coordinate
+    angle, integer = mode.compact, mode.discrete
+    Vexpr = sp.expand(Hn - Hn.coeff(integer, 2) * integer ** 2)
+    Vfun = sp.lambdify(angle, Vexpr, "numpy")
+    x = np.linspace(-np.pi, np.pi, grid)
+    V = np.real(Vfun(x)) * np.ones_like(x)
+    _, vecs = _num.eigensystem(result, {str(k): v for k, v in params.items()},
+                               n_levels, cutoffs, offsets, mode_types)
+    ncut = (vecs.shape[0] - 1) // 2
+    ns = np.arange(-ncut, ncut + 1)
+    basis = np.exp(1j * np.outer(x, ns)) / np.sqrt(2 * np.pi)   # psi = sum c_n e^{i n x}
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-        w, v = np.linalg.eigh(0.5 * (Hmat + Hmat.conj().T))
-    n = min(n_levels, len(w))
-    return x, V, w[:n], v[:, :n]
+        psis = basis @ vecs
+    energies = _num.eigenenergies(result, {str(k): v for k, v in params.items()},
+                                  n_levels, cutoffs, offsets, mode_types)
+    return x, V, energies, psis, angle
 
 
 def _cm_kinetic(n, dx):
