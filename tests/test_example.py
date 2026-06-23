@@ -442,6 +442,30 @@ def test_scqubits_cross_check_transmon_clean_oracle():
     assert r["max_abs_diff"] < 1e-9
 
 
+def test_gui_default_params_prefill():
+    """The diagonalization box pre-fills a default value for every parameter the
+    circuit needs (biases -> 0), keeps values the user already typed, and can
+    emit physical-unit defaults."""
+    from fluxcharge import library
+    from fluxcharge.gui import default_params, param_entry_text
+
+    tr = library.transmon().hamiltonian(ground="v1", canonical=True)
+    assert default_params(tr) == {"C": 1, "E_J": 15}
+
+    fx = library.fluxonium().hamiltonian(ground="v1", open_loops="f3", canonical=True)
+    dfx = default_params(fx)
+    assert dfx["E_J"] == 15 and dfx["L"] == 1 and dfx["phi_ext_f1"] == 0  # bias -> 0
+
+    cir = library.circulator().hamiltonian(ground="v1", open_loops="f4", canonical=True)
+    assert default_params(cir)["G"] == 0.5
+
+    # preserve a value the user already typed; default the rest
+    txt = param_entry_text(fx, existing="E_J=7")
+    assert "E_J=7" in txt and "L=1" in txt
+    # physical-units defaults carry suffixes
+    assert "70fF" in param_entry_text(fx, physical=True)
+
+
 def test_numerics_lc_oscillator_spectrum():
     """The LC oscillator's numeric spectrum is omega*(n+1/2), omega=1/sqrt(LC)."""
     _require_numpy()

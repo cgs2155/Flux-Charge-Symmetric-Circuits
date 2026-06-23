@@ -151,6 +151,66 @@ def summary_from_result(result, params, n_levels=6, cutoffs=None):
     }
 
 
+def _is_bias_param(name):
+    return name.startswith(("phi_ext", "phi_e", "n_g", "ng_", "q_g", "n_ext",
+                            "q_ext", "offset"))
+
+
+def default_params(result, physical=False):
+    """Ordered ``{name: value}`` of default values for every parameter the
+    reduced Hamiltonian needs -- its free symbols that are not dynamical
+    coordinates.
+
+    Element energies/values get sensible defaults (Josephson/phase-slip energies
+    15, capacitances 1, inductances 1, gyrator ratio 0.5); external biases (flux
+    ``phi_ext_*`` and offset/gate charges) default to 0.  With ``physical=True``
+    the defaults carry units (``15GHz`` / ``70fF`` / ``150nH``) for the GUI's
+    physical-units mode.  Element parameters are listed before bias parameters.
+    """
+    coords = set(result.coordinates)
+    params = [s for s in result.H.free_symbols if s not in coords]
+
+    def value(name):
+        if _is_bias_param(name):
+            return 0
+        if name.startswith(("E_J", "E_S", "EJ", "ES")):
+            return "15GHz" if physical else 15
+        if name.startswith("G"):
+            return 0.5
+        if name.startswith("L") and not name.startswith("E_L"):
+            return "150nH" if physical else 1
+        if name.startswith("C") and not name.startswith("E_C"):
+            return "70fF" if physical else 1
+        return 1                                # E_C / E_L / anything else
+
+    ordered = sorted(params, key=lambda s: (1 if _is_bias_param(str(s)) else 0, str(s)))
+    out = {}
+    for s in ordered:
+        out[str(s)] = value(str(s))
+    return out
+
+
+def _fmt_param_value(v):
+    if isinstance(v, str):
+        return v
+    return str(int(v)) if float(v) == int(v) else str(v)
+
+
+def param_entry_text(result, existing="", physical=False):
+    """Default parameter string for the diagonalization box, preserving any
+    values the user already typed for parameters that are still relevant and
+    dropping ones that no longer apply."""
+    have = {}
+    for piece in (existing or "").replace(",", " ").split():
+        if "=" in piece:
+            k, v = piece.split("=", 1)
+            have[k.strip()] = v.strip()
+    parts = []
+    for name, val in default_params(result, physical=physical).items():
+        parts.append(f"{name}={have[name] if name in have else _fmt_param_value(val)}")
+    return ", ".join(parts)
+
+
 _GREEK = {"phi": r"\phi", "varphi": r"\varphi", "theta": r"\theta",
           "psi": r"\psi", "Phi": r"\Phi"}
 
@@ -846,6 +906,15 @@ def main():  # pragma: no cover - interactive
                     pass
             last["out"] = out
             last["text"] = text
+            # pre-fill the diagonalization box with default values for every
+            # parameter this circuit needs (keeping any values already typed)
+            try:
+                filled = param_entry_text(out["result"], existing=params_entry.get(),
+                                          physical=units_var.get())
+                params_entry.delete(0, "end")
+                params_entry.insert(0, filled)
+            except Exception:
+                pass
             _rerender()
             report.delete("1.0", "end")
             report.insert("end", f"H = {out['H']}\n\nLagrangian:\n"
