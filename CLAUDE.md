@@ -126,6 +126,27 @@ wrong or incomplete Hamiltonian.
 - Single-mode results and the manuscript's circulator example are unaffected and
   remain correct.
 
+### Progress (verified) and what remains
+- **Built + verified** in `fluxcharge/canonicalize.py` (tests T1/T2/T3):
+  `canonical_from_bracket` (general Darboux, handles gyrator-populated flux-flux/
+  charge-charge blocks — reproduces the exact non-reciprocal oracle
+  `{0.6431, 2.0094}`), `symplectic_eigenvalues` (convention-free Williamson
+  oracle), and `compact_flux_modes` (compactness from the gauge lattice:
+  transmon 1, fluxonium 0, 0-π 1 = θ).
+- **Decisively confirmed** (independent grid/charge diagonalization of the
+  textbook 0-π): θ MUST be compact. With θ in the integer basis the spectrum is
+  `[0, 2.361, 2.712, 3.179, 5.175, 5.254]` and stable; treating θ as extended
+  (the package's current all-oscillator path) **diverges** (gaps → 0 as the box
+  grows). The earlier "converged" all-extended `[0,0.641,…]` was an oscillator-
+  localization artifact, i.e. **wrong**. So the 0-π fix needs BOTH the symplectic
+  canonicalization AND the compact (integer) basis for θ.
+- **Remaining (not yet wired):** assemble canonicalizer + compactness into the
+  numeric diagonalizer with a lattice-aligned canonical frame (θ = φ_n2+φ_n3 for
+  0-π) so θ is built on S¹; validate the package's 0-π against the compact-θ
+  reference and re-check duality; charge-side compactness (the dual/QPS sector)
+  and the finite-dimensional clock/shift (non-reciprocal compact-compact pairs,
+  Harper/synthetic-flux) per `~/Downloads/NONRECIPROCAL_QUANTIZATION.md`.
+
 ## Deferred / possible next steps (v0.2)
 - Partial-dual transformation, gyrator series/parallel + open/closed-terminated
   deletion rules, cascade-to-transformer, NCG reducibility (the paper's Sec.
