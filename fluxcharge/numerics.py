@@ -194,10 +194,14 @@ def check_compact_frame(result, modes, Hnum):
                 f"but only {n_coord} lie along a coordinate, so a compact mode is a "
                 "linear combination hidden by the frame (e.g. 0-pi's theta = "
                 "phi_n2 + phi_n3). The natural choice yields a half-integer cosine "
-                "cos(x/2) with no integer-lattice representation. Supply a "
-                "lattice-aware frame in which the compact direction is a coordinate "
-                "with integer cosines (pass mode_types=/a coordinate frame), rather "
-                "than relying on automatic classification.")
+                "cos(x/2) with no integer-lattice representation, and the correct "
+                "treatment needs the mode's full identification lattice (the "
+                "centered/checkerboard lattice for 0-pi) -- which fluxcharge does "
+                "not auto-solve. The symbolic Hamiltonian above is correct; for the "
+                "NUMERIC spectrum of such a (reciprocal) circuit use a dedicated "
+                "tool whose basis is built for it -- e.g. scqubits.ZeroPi, or a "
+                "real-space grid -- or export the operators via result-to-QuTiP and "
+                "diagonalize in a basis you control.")
 
 
 def classify_modes(result, mode_types: Optional[Dict] = None) -> List[Mode]:

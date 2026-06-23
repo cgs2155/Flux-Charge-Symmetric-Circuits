@@ -156,13 +156,19 @@ wrong or incomplete Hamiltonian.
   with no integer-lattice representation), so even "the user says θ is compact"
   is insufficient -- a lattice-aware FRAME (integer cosines; the
   centered/checkerboard lattice) is required.
-- **Remaining:** a user-supplied **frame API** -- let the user declare the
-  lattice-aware coordinate frame in which compact directions are coordinates with
-  integer cosines (e.g. 0-π's textbook φ/θ) so a correct multi-mode spectrum can
-  be computed; validate against a convention-matched grid; then the charge-side /
-  non-reciprocal compact-compact (clock-shift / Harper) sectors. Per advisor: the
-  package should NOT auto-detect the Hilbert-space shape -- it canonicalizes and
-  guards; the user supplies the shape/frame.
+- **Decision (division of labor):** fluxcharge does NOT auto-solve the compact
+  multi-mode spectrum. Experiment confirmed 0-π needs its full identification
+  lattice (the centered/checkerboard lattice) -- naive per-mode periodic grids
+  give spuriously degenerate, wrong spectra; this is research-grade and is what
+  `scqubits.ZeroPi` exists to handle. So for the NUMERIC spectrum of a compact
+  multi-mode *reciprocal* circuit, fluxcharge guards (raises `CompactLatticeError`
+  pointing to scqubits.ZeroPi / a grid / its QuTiP operator export) rather than
+  returning a wrong number. fluxcharge's symbolic Hamiltonian for these circuits
+  is still correct and is the deliverable; its *unique* numeric value is the
+  single-mode + gyrator/QPS circuits scqubits cannot represent. The
+  canonicalizer / symplectic oracle / compactness classifier in
+  `canonicalize.py` remain available for building a lattice-aware path later, but
+  that (and the non-reciprocal compact-compact / Harper sector) is deferred.
 
 ## Deferred / possible next steps (v0.2)
 - Partial-dual transformation, gyrator series/parallel + open/closed-terminated
