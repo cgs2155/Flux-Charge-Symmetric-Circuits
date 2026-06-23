@@ -87,6 +87,45 @@ wrong or incomplete Hamiltonian.
   `Circuit._planar` records which. Inferred loops reproduce the hand-declared
   transmon/fluxonium/circulator spectra (tested).
 
+## Known issues / open problems (IMPORTANT — read before trusting multi-mode output)
+- **Multi-mode canonicalization is wrong when the reduced symplectic form is not
+  block-diagonal.** `reduction._pairs_from_form` + `ReductionResult.canonical()`
+  read each conjugate pair off a single entry of the reduced form (per graph
+  object) and rescale per-pair. This is correct only when the flux↔charge block
+  of `f⁻¹` is diagonal — i.e. every *single-mode* circuit (transmon, fluxonium,
+  the single-mode circulator), which is why those validate to machine precision.
+  For a genuinely multi-mode circuit the flux↔charge block is **dense** (each
+  flux brackets several charges), the off-diagonal brackets are silently
+  discarded, and the reported commutators **and spectrum are wrong**. Confirmed
+  on the **0-π qubit**: package `canonical()` gives gaps `[0,0.702,1.060,…]`
+  vs the symplectically-correct `[0,0.641,1.000,…]` (E_J=C=L=C_J=1), the correct
+  value cross-checked against an independent full-bracket diagonalizer that
+  matches fluxonium to 1e-15. The fix is a real symplectic (Darboux) transform
+  before pairing; for the block-antidiagonal case it is `q' = (Bᵀ)⁻¹q`. Design
+  notes: `~/Downloads/CANONICALIZATION_FIX.md` and `zeropi_canonicalization.pdf`.
+- **The dual of a multi-mode circuit is therefore unreliable.** `dual(zero_pi)`
+  is mis-canonicalized the same way, so its spectrum does not match the original
+  (duality *must* preserve the spectrum — verified for the single-mode
+  transmon↔QPS to 1e-15 — so the mismatch is the bug above, not the transform
+  per se, but this is unproven for multi-mode until canonicalization is fixed).
+- **Multi-mode non-reciprocal (gyrator) quantization is not thought through.**
+  A gyrator can put nonzero entries in the flux–flux / charge–charge blocks of
+  the reduced form, so even the general Darboux step (not just the
+  block-antidiagonal special case) is needed; this is untested and unhandled.
+- **Compactness/periodicity is a second, separate open problem.** Mode
+  classification (`numerics.classify_modes`) is per graph-pair and can't see a
+  compact normal-mode combination hidden in coordinate mixing (e.g. 0-π's θ has
+  no quadratic term in the φ/θ frame but every node flux carries one). A real
+  symplectic transform lives in `Sp(2n,ℝ)` but a compact coordinate's integer
+  (Cooper-pair / fluxoid) lattice is preserved only by `Sp(2n,ℤ)`; a generic
+  Darboux frame can rotate a periodic coordinate off its lattice (→ `cos(q/2)`),
+  which has no integer-basis representation. 0-π evades this (coupling is purely
+  flux↔charge, all-extended) but **its dual does not**. Plan: classify modes
+  *after* canonicalization, integer basis for compact modes, and a guard that
+  raises rather than silently using an oscillator basis for a compact mode.
+- Single-mode results and the manuscript's circulator example are unaffected and
+  remain correct.
+
 ## Deferred / possible next steps (v0.2)
 - Partial-dual transformation, gyrator series/parallel + open/closed-terminated
   deletion rules, cascade-to-transformer, NCG reducibility (the paper's Sec.
