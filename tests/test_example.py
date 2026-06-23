@@ -357,6 +357,56 @@ def _require_numpy():
         raise SystemExit(0)
 
 
+def test_canonicalizer_contract_T1():
+    """canonical_from_bracket brings any antisymmetric non-degenerate bracket
+    matrix to the standard symplectic form J (random sizes up to 2n=8)."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge.canonicalize import canonical_from_bracket
+    rng = np.random.default_rng(1)
+    for n in (1, 2, 3, 4):
+        Ar = rng.standard_normal((2 * n, 2 * n))
+        Pi = Ar - Ar.T
+        T = canonical_from_bracket(Pi)
+        J = np.block([[np.zeros((n, n)), np.eye(n)],
+                      [-np.eye(n), np.zeros((n, n))]])
+        assert np.allclose(T @ Pi @ T.T, J, atol=1e-7)
+
+
+def test_symplectic_eigenvalue_oracle_nonreciprocal_T2():
+    """The full symplectic canonicalization reproduces the convention-free
+    Williamson frequencies for a NON-reciprocal (gyrator-coupled) 2-mode system
+    -- where the symplectic form has nonzero flux-flux/charge-charge blocks --
+    while the per-pair shortcut (zeroing those blocks) does not.  Exact oracle
+    from the project notes: {0.6431, 2.0094}."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge.canonicalize import symplectic_eigenvalues
+    np.seterr(all="ignore")
+    FF = np.array([[0, 0.8], [-0.8, 0]])
+    CC = np.array([[0, 0.3], [-0.3, 0]])
+    M = np.array([[1, 0.2], [0.1, 1.1]])
+    f = np.block([[FF, -M.T], [M, CC]])
+    K = np.block([[np.array([[1, 0.1], [0.1, 1.2]]), np.zeros((2, 2))],
+                  [np.zeros((2, 2)), np.array([[1.1, 0], [0, 0.9]])]])
+    full = np.sort(symplectic_eigenvalues(np.linalg.inv(f), K))
+    fpp = np.block([[np.zeros((2, 2)), -M.T], [M, np.zeros((2, 2))]])
+    perpair = np.sort(symplectic_eigenvalues(np.linalg.inv(fpp), K))
+    assert np.allclose(full, [0.6431, 2.0094], atol=1e-3)
+    assert not np.allclose(full, perpair, atol=1e-2)   # per-pair is wrong
+
+
+def test_gauge_lattice_compactness_T3():
+    """Compactness is computed from the circuit's gauge lattice, not guessed:
+    transmon -> phi compact, fluxonium -> phi extended, 0-pi -> one compact
+    (theta) flux mode."""
+    from fluxcharge import library
+    from fluxcharge.canonicalize import compact_flux_modes
+    assert compact_flux_modes(library.transmon()) == 1
+    assert compact_flux_modes(library.fluxonium()) == 0
+    assert compact_flux_modes(library.zero_pi()) == 1
+
+
 def test_numerics_lc_oscillator_spectrum():
     """The LC oscillator's numeric spectrum is omega*(n+1/2), omega=1/sqrt(LC)."""
     _require_numpy()
