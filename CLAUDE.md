@@ -140,12 +140,29 @@ wrong or incomplete Hamiltonian.
   grows). The earlier "converged" all-extended `[0,0.641,…]` was an oscillator-
   localization artifact, i.e. **wrong**. So the 0-π fix needs BOTH the symplectic
   canonicalization AND the compact (integer) basis for θ.
-- **Remaining (not yet wired):** assemble canonicalizer + compactness into the
-  numeric diagonalizer with a lattice-aligned canonical frame (θ = φ_n2+φ_n3 for
-  0-π) so θ is built on S¹; validate the package's 0-π against the compact-θ
-  reference and re-check duality; charge-side compactness (the dual/QPS sector)
-  and the finite-dimensional clock/shift (non-reciprocal compact-compact pairs,
-  Harper/synthetic-flux) per `~/Downloads/NONRECIPROCAL_QUANTIZATION.md`.
+- **scqubits cross-validation (built):** `interop.to_scqubits_yaml` +
+  `cross_check_spectrum`. Finding: scqubits' *general* `Circuit` class is a clean
+  oracle only for charge networks (transmon 1e-13); for inductive circuits it
+  disagrees with grids AND scqubits' own predefined classes -- fluxcharge matches
+  the grid/predefined classes, `Circuit` is the outlier. Use grids for inductive
+  validation.
+- **Compact-frame guard (DONE):** `numerics.check_compact_frame` detects a
+  compact mode hidden by coordinate mixing (the inductive/capacitive quadratic
+  form is rank-deficient with no coordinate-aligned unconfined direction) and
+  raises `CompactLatticeError` instead of a silently-wrong spectrum. **0-π now
+  raises** (honest) rather than printing a meaningless number; single-mode
+  circuits and the circulator are unaffected. KEY obstruction, verified: the
+  natural compact direction θ = φ_n2+φ_n3 gives `cos(θ/2)` (a half-integer cosine
+  with no integer-lattice representation), so even "the user says θ is compact"
+  is insufficient -- a lattice-aware FRAME (integer cosines; the
+  centered/checkerboard lattice) is required.
+- **Remaining:** a user-supplied **frame API** -- let the user declare the
+  lattice-aware coordinate frame in which compact directions are coordinates with
+  integer cosines (e.g. 0-π's textbook φ/θ) so a correct multi-mode spectrum can
+  be computed; validate against a convention-matched grid; then the charge-side /
+  non-reciprocal compact-compact (clock-shift / Harper) sectors. Per advisor: the
+  package should NOT auto-detect the Hilbert-space shape -- it canonicalizes and
+  guards; the user supplies the shape/frame.
 
 ## Deferred / possible next steps (v0.2)
 - Partial-dual transformation, gyrator series/parallel + open/closed-terminated
