@@ -793,6 +793,28 @@ def test_tidy_hamiltonian_collects_and_preserves_spectrum():
     assert np.all(np.isreal(ev))
 
 
+def test_tidy_skips_trig_fold_when_no_powers():
+    """The trig fold only runs when there is a cos/sin power or product to
+    reduce.  Dualizing the 0-pi qubit gives cos(q1-q2)+cos(q1+q2): already
+    linear, so the (very slow) Fu product-to-sum search must be skipped -- the
+    reduction has to finish quickly rather than hang."""
+    import sympy as sp
+    from fluxcharge import library, dual
+    from fluxcharge.reduction import _has_trig_power
+
+    q1, q2 = sp.symbols("q1 q2")
+    assert _has_trig_power(sp.cos(q1 / 2) ** 2) is True            # power
+    assert _has_trig_power(sp.cos(q1) * sp.cos(q2)) is True        # product
+    assert _has_trig_power(sp.cos(q1 - q2) + sp.cos(q1 + q2)) is False  # linear
+
+    import time
+    t0 = time.time()
+    r = dual(library.zero_pi()).hamiltonian(strict=False, canonical=True)
+    assert time.time() - t0 < 20.0          # was >60s before the guard
+    # cosines stayed separate -- not fused into cos*cos products by Fu
+    assert len(r.H.atoms(sp.cos)) >= 2 and _has_trig_power(r.H) is False
+
+
 def test_schematic_infers_loops_for_planar_layout():
     """A circuit built without declared loops still draws with the crossing-free
     planar layout: schematic() infers faces just like hamiltonian() does."""

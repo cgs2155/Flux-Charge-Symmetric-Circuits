@@ -65,7 +65,12 @@
       "Bash(.venv/bin/python -m pytest -q tests/test_example.py::test_dual_completes_outer_face_transmon)",
       "Bash(.venv/bin/python -m pytest -q tests/test_example.py::test_tidy_hamiltonian_collects_and_preserves_spectrum tests/test_example.py::test_schematic_infers_loops_for_planar_layout)",
       "Bash(.venv/bin/python -m pytest -q tests/test_example.py::test_tidy_hamiltonian_collects_and_preserves_spectrum)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(pyinstaller --clean fluxcharge-gui.spec --noconfirm)",
+      "Bash(FLUXCHARGE_SELFTEST=1 ./dist/fluxcharge-gui.app/Contents/MacOS/fluxcharge-gui)",
+      "Bash(pkill -f fluxcharge-gui)",
+      "Bash(grep -vE \"^$|importlib|frozen\")",
+      "Bash(.venv/bin/python -m pytest -q tests/test_example.py::test_tidy_skips_trig_fold_when_no_powers)"
     ]
   }
 }

@@ -72,6 +72,23 @@ def velocity_free_part(expr: sp.Expr, velocities: Sequence[sp.Symbol]) -> sp.Exp
     return sp.Add(*keep) if keep else sp.Integer(0)
 
 
+def _has_trig_power(expr: sp.Expr) -> bool:
+    """True if *expr* contains a cos/sin raised to a power >= 2 or a product of
+    two or more trig factors -- i.e. something a power-reduction can collapse."""
+    for node in sp.preorder_traversal(expr):
+        if (isinstance(node, sp.Pow) and node.base.func in (sp.cos, sp.sin)
+                and node.exp.is_integer and node.exp >= 2):
+            return True
+        if isinstance(node, sp.Mul):
+            ntrig = sum(
+                1 for f in node.args
+                if f.func in (sp.cos, sp.sin)
+                or (isinstance(f, sp.Pow) and f.base.func in (sp.cos, sp.sin)))
+            if ntrig >= 2:
+                return True
+    return False
+
+
 def tidy_hamiltonian(expr: sp.Expr, coords: Sequence[sp.Symbol]) -> sp.Expr:
     """Collect *expr* by monomials in the dynamical *coords* and simplify each
     coefficient.
@@ -104,7 +121,16 @@ def tidy_hamiltonian(expr: sp.Expr, coords: Sequence[sp.Symbol]) -> sp.Expr:
             fold.append(term)
         else:
             poly_part.append(term)
-    folded = sp.expand(sp.simplify(sp.Add(*fold))) if fold else sp.Integer(0)
+    fold_expr = sp.Add(*fold)
+    # Only invoke the (expensive) trig simplifier when there is a power or
+    # product of cos/sin to reduce.  When every cosine already enters linearly
+    # -- e.g. the dual of the 0-pi qubit has cos(q1-q2)+cos(q1+q2), which is
+    # already the desired form -- sympy's Fu routine would otherwise spend a
+    # very long time fruitlessly searching product-to-sum identities.
+    if fold and _has_trig_power(fold_expr):
+        folded = sp.expand(sp.simplify(fold_expr))
+    else:
+        folded = fold_expr
 
     # re-split: folding may have shed a constant (no coordinates) back out
     combined = sp.expand(folded + sp.Add(*poly_part))
