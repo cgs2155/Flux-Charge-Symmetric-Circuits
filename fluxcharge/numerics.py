@@ -137,6 +137,69 @@ def _inside_cos_or_sin(H: sp.Expr, sym: sp.Symbol) -> bool:
     return False
 
 
+def _polynomial_part(H: sp.Expr) -> sp.Expr:
+    """``H`` with the Josephson/phase-slip cosine/sine terms removed -- i.e. the
+    inductive/capacitive quadratic energy that sets confinement."""
+    return sp.Add(*[t for t in sp.Add.make_args(sp.expand(H))
+                    if not t.has(sp.cos, sp.sin)])
+
+
+def check_compact_frame(result, modes, Hnum):
+    """Guard against a compact mode hidden by coordinate mixing.
+
+    The per-pair classification (:func:`classify_modes`) decides extended vs
+    compact by looking at each coordinate in isolation.  That is correct only
+    when an unconfined direction coincides with a coordinate.  For a multi-mode
+    circuit the inductive (resp. capacitive) quadratic form can be **degenerate
+    along a linear combination** -- 0-pi's ``theta = phi_n2 + phi_n3`` carries no
+    inductive energy, yet every node flux individually does, so the eye-rule
+    wrongly calls all modes extended and the spectrum diverges.
+
+    Here we compare the number of unconfined directions (rank deficiency of the
+    numeric quadratic form) against the number the per-coordinate rule actually
+    captured.  If the former exceeds the latter there is a compact mode that the
+    current coordinate frame does not expose -- and the naive choice generically
+    produces a non-integer cosine (``cos(theta/2)``), which has no integer-lattice
+    representation.  Rather than return a silently-wrong spectrum we raise
+    :class:`~fluxcharge.canonicalize.CompactLatticeError`, asking the user to
+    supply a lattice-aware frame (integer cosines on the compact directions).
+    """
+    import numpy as np
+    from .canonicalize import CompactLatticeError
+
+    poly = _polynomial_part(Hnum)
+    fluxes = [m.flux for m in modes]
+    charges = [m.charge for m in modes]
+
+    def _rank(coords):
+        if not coords:
+            return 0
+        K = sp.hessian(poly, coords)
+        K = np.array(K.tolist(), dtype=complex).real.astype(float)
+        return int(np.linalg.matrix_rank(K, tol=1e-9)) if K.size else 0
+
+    # unconfined = rank-deficiency of the quadratic form;
+    # coordinate-captured = coordinates that individually lack a quadratic term.
+    for label, coords, captured_kinds in (
+            ("flux", fluxes, (PERIODIC, FREE)),
+            ("charge", charges, (DUAL_PERIODIC, FREE))):
+        n_unconfined = len(coords) - _rank(coords)
+        n_coord = sum(1 for c in coords if not _has_quadratic(poly, c))
+        n_captured = sum(1 for m in modes if m.kind in captured_kinds)
+        # a direction is hidden if more directions are unconfined than the
+        # number of coordinates that are individually unconfined and tagged
+        if n_unconfined > n_coord:
+            raise CompactLatticeError(
+                f"this circuit has {n_unconfined} unconfined {label} direction(s) "
+                f"but only {n_coord} lie along a coordinate, so a compact mode is a "
+                "linear combination hidden by the frame (e.g. 0-pi's theta = "
+                "phi_n2 + phi_n3). The natural choice yields a half-integer cosine "
+                "cos(x/2) with no integer-lattice representation. Supply a "
+                "lattice-aware frame in which the compact direction is a coordinate "
+                "with integer cosines (pass mode_types=/a coordinate frame), rather "
+                "than relying on automatic classification.")
+
+
 def classify_modes(result, mode_types: Optional[Dict] = None) -> List[Mode]:
     """Classify every conjugate pair of *result* into a :class:`Mode`.
 
@@ -231,6 +294,9 @@ class _OperatorBuilder:
                 + ", ".join(sorted(map(str, missing)))
                 + " -- pass them in params=")
         self.Hnum = sp.expand(result.H.subs(self.params))
+
+        # refuse to silently mis-quantize a compact mode hidden by the frame
+        check_compact_frame(result, self.modes, self.Hnum)
 
         # per-mode local dimension
         # default basis size per mode, scaled down for many modes so the

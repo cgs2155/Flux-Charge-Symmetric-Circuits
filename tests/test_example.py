@@ -827,25 +827,35 @@ def test_library_circuits_reduce_and_diagonalize():
         # small explicit cutoffs so multi-mode circuits (zero-pi) stay fast; we
         # only check the run succeeds and the spectrum is real, not convergence
         cut = {str(b): 6 for _a, b, _c in res.conjugate_pairs}
-        ev = res.eigenenergies(params, n_levels=3, cutoffs=cut)
-        assert np.all(np.isreal(ev)), name
+        from fluxcharge.canonicalize import CompactLatticeError
+        try:
+            ev = res.eigenenergies(params, n_levels=3, cutoffs=cut)
+            assert np.all(np.isreal(ev)), name
+        except CompactLatticeError:
+            pass  # multi-mode compact frame not auto-quantizable (0-pi) -- guarded
 
 
-def test_zero_pi_reduces_to_three_extended_modes():
-    """The 0-pi qubit reduces completely to three modes (all EXTENDED in node
-    coordinates) with the two Josephson cosines, and diagonalizes."""
+def test_zero_pi_compact_mode_is_guarded():
+    """The 0-pi qubit reduces completely to three modes with the two Josephson
+    cosines, but its compact mode theta = phi_n2 + phi_n3 carries no inductive
+    energy while every node flux individually does -- so the per-coordinate
+    classification wrongly sees three extended modes.  Quantizing it that way
+    diverges (the compact theta needs an integer basis, not an oscillator), and
+    the naive frame yields a half-integer cosine with no integer-lattice
+    representation.  eigenenergies therefore raises CompactLatticeError rather
+    than returning a silently-wrong spectrum; a correct spectrum needs a
+    user-supplied lattice-aware frame."""
     _require_numpy()
-    import numpy as np
     from fluxcharge import library
+    from fluxcharge.canonicalize import CompactLatticeError
     res = library.zero_pi().hamiltonian(ground="n1", strict=False, canonical=True)
     assert res.complete
-    modes = res.modes()
-    assert len(modes) == 3 and all(m.kind == "extended" for m in modes)
+    assert len(res.modes()) == 3
     assert sum(1 for _ in res.H.atoms(sp.cos)) == 2          # two junctions
-    cut = {str(b): 5 for _a, b, _c in res.conjugate_pairs}   # tiny basis, just runs
-    ev = res.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
-                           n_levels=3, cutoffs=cut)
-    assert np.all(np.isreal(ev))
+    cut = {str(b): 5 for _a, b, _c in res.conjugate_pairs}
+    with pytest.raises(CompactLatticeError):
+        res.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
+                          n_levels=3, cutoffs=cut)
 
 
 def test_tidy_hamiltonian_collects_and_preserves_spectrum():
