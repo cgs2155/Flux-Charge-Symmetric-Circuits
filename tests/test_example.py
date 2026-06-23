@@ -407,6 +407,41 @@ def test_gauge_lattice_compactness_T3():
     assert compact_flux_modes(library.zero_pi()) == 1
 
 
+def _require_scqubits():
+    _require_numpy()
+    try:
+        import scqubits  # noqa: F401
+    except ModuleNotFoundError:
+        if hasattr(pytest, "skip"):
+            pytest.skip("scqubits not installed")
+        raise SystemExit(0)
+
+
+def test_to_scqubits_export_refuses_nonreciprocal():
+    """The scqubits exporter refuses gyrators / quantum phase slips -- scqubits
+    has no representation for a non-reciprocal element or a cosine-of-charge."""
+    from fluxcharge import library
+    from fluxcharge.interop import to_scqubits_yaml
+    with pytest.raises(NotImplementedError):
+        to_scqubits_yaml(library.circulator(), {"E_J": 10.0, "C": 1.0, "G": 0.5})
+    with pytest.raises(NotImplementedError):
+        to_scqubits_yaml(library.phase_slip_qubit(charge_bias=False),
+                         {"E_S": 10.0, "L": 1.0})
+
+
+def test_scqubits_cross_check_transmon_clean_oracle():
+    """For a charge-network circuit (no linear inductor) scqubits' general
+    Circuit class is a clean oracle: the transmon round-trips to ~1e-13.  This
+    is the cross-validation harness that will track the multi-mode fix."""
+    _require_scqubits()
+    from fluxcharge import library
+    from fluxcharge.interop import cross_check_spectrum
+    r = cross_check_spectrum(library.transmon(), {"E_J": 10.0, "C": 1.0},
+                             n_levels=5, ground="v1", cutoffs={"q_f1": 81},
+                             scqubits_cutoff=60)
+    assert r["max_abs_diff"] < 1e-9
+
+
 def test_numerics_lc_oscillator_spectrum():
     """The LC oscillator's numeric spectrum is omega*(n+1/2), omega=1/sqrt(LC)."""
     _require_numpy()

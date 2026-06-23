@@ -123,3 +123,125 @@ def from_scqubits_yaml(source):
 
     ckt.ground = "0" if "0" in nodes else None
     return ckt, params
+
+
+# ----------------------------------------------------------------------
+# export + cross-validation
+# ----------------------------------------------------------------------
+def _num(expr, params):
+    """Numeric float value of a (possibly symbolic) element value."""
+    val = sp.sympify(expr).subs(params or {})
+    val = sp.N(val)
+    if not val.is_number:
+        free = ", ".join(sorted(str(s) for s in val.free_symbols))
+        raise ValueError(f"cannot export: value {expr} still depends on {free}; "
+                         "pass numeric params for every symbol")
+    return float(val)
+
+
+def to_scqubits_yaml(circuit, params=None):
+    """Serialise a **reciprocal** fluxcharge circuit to scqubits ``Circuit`` YAML.
+
+    Capacitors become ``C`` branches (charging energy ``EC = 1/(8 C)``),
+    inductors ``L`` branches (``EL = 1/L``), and each Josephson junction a ``JJ``
+    branch ``[JJ, i, j, EJ, EC_J]`` whose junction charging energy is taken from
+    the capacitor in parallel with it (every physical junction has one; that
+    capacitor is then not emitted separately).  Node ``0`` is ground.
+
+    Gyrators and quantum phase slips are refused -- scqubits has no
+    representation for a non-reciprocal element or a cosine-of-charge.  All
+    element values must be numeric after substituting *params*.
+
+    Returns the YAML string; feed it to ``scqubits.Circuit(yaml, from_file=False)``.
+    """
+    from .elements import Capacitor, Inductor, JosephsonJunction
+
+    bad = [type(el).__name__ for el in circuit._elements
+           if type(el).__name__ not in ("Capacitor", "Inductor", "JosephsonJunction")]
+    if bad:
+        raise NotImplementedError(
+            f"scqubits cannot represent {sorted(set(bad))}; export is limited to "
+            "the reciprocal C / L / JJ subset (no gyrators or quantum phase slips)")
+
+    # node -> integer, ground = 0
+    ground = getattr(circuit, "ground", None)
+    others = [v for v in circuit.vertices if v != ground]
+    nmap = {ground: 0} if ground is not None else {}
+    for k, v in enumerate(others, start=1 if ground is not None else 0):
+        nmap[v] = k
+
+    def pair(el):
+        return nmap[el._edge.tail], nmap[el._edge.head]
+
+    # match each JJ to a parallel capacitor (same unordered node pair)
+    caps = [el for el in circuit._elements if isinstance(el, Capacitor)]
+    consumed = set()
+    lines = ["branches:"]
+    for el in circuit._elements:
+        if not isinstance(el, JosephsonJunction):
+            continue
+        i, j = pair(el)
+        partner = next((c for c in caps if id(c) not in consumed
+                        and {nmap[c._edge.tail], nmap[c._edge.head]} == {i, j}), None)
+        if partner is None:
+            raise NotImplementedError(
+                f"junction {el.name} has no parallel capacitor; scqubits requires a "
+                "junction charging energy. Add the junction capacitance explicitly.")
+        consumed.add(id(partner))
+        EJ = _num(el.EJ, params)
+        EC = 1.0 / (8.0 * _num(partner.C, params))
+        lines.append(f"- [JJ, {i}, {j}, {EJ:.12g}, {EC:.12g}]")
+
+    for el in circuit._elements:
+        if isinstance(el, Capacitor) and id(el) not in consumed:
+            i, j = pair(el)
+            lines.append(f"- [C, {i}, {j}, {1.0/(8.0*_num(el.C, params)):.12g}]")
+        elif isinstance(el, Inductor):
+            i, j = pair(el)
+            lines.append(f"- [L, {i}, {j}, {1.0/_num(el.L, params):.12g}]")
+    return "\n".join(lines) + "\n"
+
+
+def cross_check_spectrum(circuit, params, n_levels=5, ground=None,
+                         open_loops=None, cutoffs=None, scqubits_cutoff=None,
+                         **hamiltonian_kw):
+    """Diagonalise *circuit* with both fluxcharge and scqubits and compare.
+
+    Exports the (reciprocal) circuit to scqubits, diagonalises it there, runs
+    fluxcharge's own numeric diagonalisation, and returns a dict with both
+    ground-referenced spectra (GHz) and ``max_abs_diff``.
+
+    CAVEAT -- which scqubits is the oracle.  scqubits' *general* ``Circuit``
+    class is a clean reference only for charge-network circuits (no linear
+    inductor): the transmon round-trips to ~1e-13.  For inductive circuits its
+    general ``Circuit`` class uses a convention that disagrees with both an
+    independent grid diagonalisation and scqubits' own predefined classes
+    (e.g. ``Fluxonium``) -- fluxcharge matches the grid and the predefined
+    classes, ``Circuit`` is the outlier.  So a nonzero ``max_abs_diff`` against
+    ``Circuit`` on an inductive circuit may be scqubits' quirk, not fluxcharge's
+    -- cross-check against a grid or a predefined class before concluding.  Use
+    this harness as a clean oracle for charge networks; for inductive/multi-mode
+    circuits prefer the grid references in the test suite.
+    """
+    import numpy as np
+    import scqubits as scq
+
+    yaml = to_scqubits_yaml(circuit, params)
+    scq_circ = scq.Circuit(yaml, from_file=False)
+    if scqubits_cutoff:
+        for sym in scq_circ.cutoff_names:
+            setattr(scq_circ, sym, scqubits_cutoff)
+    ev_sc = np.sort(scq_circ.eigenvals(evals_count=n_levels))
+    ev_sc = ev_sc - ev_sc[0]
+
+    res = circuit.hamiltonian(ground=ground, open_loops=open_loops,
+                              **hamiltonian_kw)
+    ev_fc = np.sort(res.eigenenergies(params, n_levels=n_levels, cutoffs=cutoffs))
+    ev_fc = ev_fc - ev_fc[0]
+
+    return {
+        "scqubits": ev_sc,
+        "fluxcharge": ev_fc,
+        "max_abs_diff": float(np.max(np.abs(ev_sc - ev_fc))),
+        "scqubits_yaml": yaml,
+    }
