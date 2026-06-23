@@ -72,6 +72,61 @@ def velocity_free_part(expr: sp.Expr, velocities: Sequence[sp.Symbol]) -> sp.Exp
     return sp.Add(*keep) if keep else sp.Integer(0)
 
 
+def tidy_hamiltonian(expr: sp.Expr, coords: Sequence[sp.Symbol]) -> sp.Expr:
+    """Collect *expr* by monomials in the dynamical *coords* and simplify each
+    coefficient.
+
+    ``sympy.simplify`` leaves the reduced Hamiltonian as a long sum of
+    individually-simplified terms: the same monomial (e.g. ``q_i q_j``) can
+    appear several times carrying different rational coefficients in the
+    circuit parameters, because reduction builds it up piecewise.  This groups
+    by monomial and folds each coefficient into a single factored rational
+    function, which is the same Hamiltonian written in the shortest form.
+
+    The ``cos``/``sin`` (Josephson, phase-slip) terms are non-polynomial and
+    are passed through untouched.
+    """
+    expr = sp.expand(expr)
+    gens = [c for c in coords if expr.has(c)]
+    if not gens:
+        return sp.simplify(expr)
+    gen_set = set(gens)
+
+    # Fold the Josephson/phase-slip part: power/double-angle forms such as
+    # -2 cos^2(q/2) + 1 collapse to a single cosine with an integer argument
+    # (which is what the operator basis needs).  Simplify only the trig terms
+    # together with the pure-constant terms that complete the identity -- never
+    # the polynomial-in-coordinates part, whose common denominator would
+    # otherwise contaminate the cosine coefficients.
+    fold, poly_part = [], []
+    for term in sp.Add.make_args(expr):
+        if term.has(sp.cos, sp.sin) or not (term.free_symbols & gen_set):
+            fold.append(term)
+        else:
+            poly_part.append(term)
+    folded = sp.expand(sp.simplify(sp.Add(*fold))) if fold else sp.Integer(0)
+
+    # re-split: folding may have shed a constant (no coordinates) back out
+    combined = sp.expand(folded + sp.Add(*poly_part))
+    rest, poly = [], []
+    for term in sp.Add.make_args(combined):
+        (rest if term.has(sp.cos, sp.sin) else poly).append(term)
+    rest = sp.Add(*rest)
+    poly = sp.Add(*poly)
+    if poly == 0:
+        return rest
+    try:
+        P = sp.Poly(poly, *gens)
+    except sp.PolynomialError:
+        return sp.simplify(expr)
+
+    tidy = rest
+    for monomial, coeff in P.terms():
+        mono = sp.prod([g ** e for g, e in zip(gens, monomial)])
+        tidy += sp.factor(sp.cancel(coeff)) * mono
+    return tidy
+
+
 # ----------------------------------------------------------------------
 # result container
 # ----------------------------------------------------------------------
@@ -165,7 +220,7 @@ class ReductionResult:
             H = sp.expand(H.subs(target, target / cs))
             new_pairs.append((keep, target, sp.Integer(1)))
             notes.append(f"canonicalize: {target} := ({cs})*{target}")
-        H = sp.simplify(H)
+        H = tidy_hamiltonian(H, [c for c in self.coordinates if H.has(c)])
         return dataclasses.replace(
             self,
             H=H,
@@ -635,6 +690,7 @@ class Reducer:
 
         removed = set(self._gauge) | set(self._eliminated) | set(self._cyclic)
         survivors = [c for c in self.coords if c not in removed]
+        H = tidy_hamiltonian(H, survivors)
 
         f = self._reduced_symplectic(L_red, survivors)
         complete = (len(survivors) > 0 and len(survivors) % 2 == 0

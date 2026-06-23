@@ -242,6 +242,16 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
     import schemdraw
     import schemdraw.elements as elm
 
+    # The crossing-free planar layout reads the circuit's faces (loops).  When
+    # none were declared, infer them from the graph -- exactly as hamiltonian()
+    # does -- so a circuit built without explicit loops still draws planar
+    # instead of falling back to the tangled spring layout.
+    if not circuit._loops:
+        try:
+            circuit.infer_loops()
+        except Exception:
+            pass
+
     if positions is not None:
         pos = {k: np.asarray(v, dtype=float) for k, v in positions.items()}
         G = circuit.to_networkx()

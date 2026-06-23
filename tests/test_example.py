@@ -763,6 +763,50 @@ def test_zero_pi_reduces_to_three_extended_modes():
     assert np.all(np.isreal(ev))
 
 
+def test_tidy_hamiltonian_collects_and_preserves_spectrum():
+    """tidy_hamiltonian folds each monomial into one factored coefficient (so the
+    0-pi H is short) without changing the Hamiltonian it represents, and folds
+    Josephson powers back to an integer-argument cosine."""
+    _require_numpy()
+    import numpy as np
+    import sympy as sp
+    from fluxcharge import library, Circuit, dual
+    from fluxcharge.reduction import tidy_hamiltonian
+
+    res = library.zero_pi().hamiltonian(ground="n1", strict=False, canonical=True)
+    # the collected form is much shorter than the raw expanded sum...
+    assert len(sp.Add.make_args(res.H)) < len(sp.Add.make_args(sp.expand(res.H)))
+    # ...but it is the *same* Hamiltonian
+    coords = [c for a, b, _ in res.conjugate_pairs for c in (a, b)]
+    assert sp.expand(res.H - tidy_hamiltonian(sp.expand(res.H), coords)) == 0
+
+    # dual of the transmon: -2 E_J cos^2(q/2) + E_J must fold to -E_J cos(q)
+    t = Circuit()
+    t.add_josephson("e1", "v1", "v2", EJ="E_J")
+    t.add_capacitor("e2", "v1", "v2", C="C")
+    t.add_loop("f1", ["+e1", "-e2"])
+    dr = dual(t).hamiltonian(strict=False, canonical=True)
+    cos_args = [c.args[0] for c in dr.H.atoms(sp.cos)]
+    assert all(a.as_poly(*a.free_symbols).total_degree() <= 1 for a in cos_args)
+    # integer coefficient -> diagonalizes with no explicit cutoff needed
+    ev = np.sort(dr.eigenenergies({"E_J": 10.0, "C": 1.0}, n_levels=4))
+    assert np.all(np.isreal(ev))
+
+
+def test_schematic_infers_loops_for_planar_layout():
+    """A circuit built without declared loops still draws with the crossing-free
+    planar layout: schematic() infers faces just like hamiltonian() does."""
+    import matplotlib
+    matplotlib.use("Agg")
+    from fluxcharge import library
+
+    zp = library.zero_pi()
+    assert not zp._loops                      # nothing declared
+    zp.schematic()                            # should not fall back to spring
+    assert zp._loops                          # faces were inferred
+    assert zp._planar is True
+
+
 def test_wavefunction_representation_toggle():
     """The wavefunction plot can be shown in the flux or the charge
     representation (the latter via Fourier transform / charge distribution)."""
