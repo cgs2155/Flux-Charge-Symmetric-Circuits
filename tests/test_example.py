@@ -504,6 +504,47 @@ def test_move_across_gyrator_preserves_spectrum():
     assert len(q1) == 1 and q1[0].winding == 1
 
 
+def test_move_across_gyrator_multi_element_block():
+    """The multi-element partial-dual move: a PARALLEL reciprocal block
+    terminating a gyrator port maps to the SERIES chain of its duals on the far
+    port (duality swaps parallel<->series).  A transmon block JJ || C across a
+    gyrator becomes a series QPS - L, well-posed, with the same spectrum."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import Circuit, move_across_gyrator
+
+    A = Circuit()
+    A.add_capacitor("c0", "a", "g", C="C0")
+    A.add_josephson("jb", "b", "g", EJ="E_J")     # transmon block: JJ || C_J
+    A.add_capacitor("cj", "b", "g", C="C_J")
+    A.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G=1)
+    A.ground = "g"
+    rA = A.hamiltonian(strict=False, canonical=True)
+    assert rA.complete
+
+    B = move_across_gyrator(A, ["jb", "cj"])       # JJ||C -> QPS--L series
+    kinds = sorted(type(e).__name__ for e in B._elements)
+    assert kinds == ["Capacitor", "Inductor", "QuantumPhaseSlip"]   # C0, dual(C_J)=L, dual(JJ)=QPS
+    # the duals are in series (share an interior node), not in parallel
+    qps = next(e for e in B._elements if type(e).__name__ == "QuantumPhaseSlip")
+    ind = next(e for e in B._elements if type(e).__name__ == "Inductor")
+    assert set((qps._edge.tail, qps._edge.head)) & set((ind._edge.tail, ind._edge.head))
+    rB = B.hamiltonian(strict=False, canonical=True)
+    assert rB.complete
+
+    p = {"C0": 1.0, "E_J": 6.0, "C_J": 1.5}
+    cutA = {str(b): 41 for _a, b, _c in rA.conjugate_pairs}
+    cutB = {str(b): 41 for _a, b, _c in rB.conjugate_pairs}
+    ea = rA.eigenenergies(p, n_levels=5, cutoffs=cutA); ea = ea - ea[0]
+    eb = rB.eigenenergies(p, n_levels=5, cutoffs=cutB); eb = eb - eb[0]
+    assert np.allclose(ea, eb, atol=1e-3)
+
+    # a partial block (leaving an element behind on the port) is refused
+    import pytest as _pytest
+    with _pytest.raises(NotImplementedError):
+        move_across_gyrator(A, "jb")
+
+
 def test_move_across_gyrator_preserves_well_posedness_JJ_to_QPS():
     """Partial duality is a point transformation, so it preserves well-posedness
     (manuscript Sec. "Partial Dual Transformations").  A WELL-POSED junction via

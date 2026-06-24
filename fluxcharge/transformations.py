@@ -186,59 +186,86 @@ def _readd_element(dest: Circuit, el):
         raise TypeError(f"cannot copy element {el!r}")
 
 
-def move_across_gyrator(circuit: Circuit, element_edge: str) -> Circuit:
-    """Move a reciprocal one-port across the gyrator terminating its port.
-
-    Implements the manuscript's **partial-dual move** (Sec. "Partial Dual
-    Transformations") in the Tellegen single-element case: a reciprocal one-port
-    element on ``element_edge`` that *terminates* one half-edge of a gyrator is
-    relocated to the gyrator's other port as its **dual**, with the gyration
-    ratio carried by the conservation law ``phi_near = q_far / G``:
+def _add_dual_oneport(dest: Circuit, X, name, t, h, G):
+    """Add the dual of one-port *X* between nodes *t*, *h* of *dest*, with the
+    gyration ratio carried by the conservation law ``phi_near = q_far / G``:
 
     * capacitor ``C``  ->  inductor ``L = C / G**2``
     * inductor ``L``   ->  capacitor ``C = G**2 * L``
-    * Josephson ``E_J`` -> quantum phase slip ``E_S = E_J``
-    * quantum phase slip ``E_S`` -> Josephson ``E_J = E_S``
+    * Josephson ``E_J`` -> quantum phase slip ``E_S`` (cosine argument / G)
+    * quantum phase slip ``E_S`` -> Josephson ``E_J`` (cosine argument / G)
+    """
+    if isinstance(X, Capacitor):
+        dest.add_inductor(name, t, h, L=sp.simplify(X.C / G**2))
+    elif isinstance(X, Inductor):
+        dest.add_capacitor(name, t, h, C=sp.simplify(G**2 * X.L))
+    elif isinstance(X, JosephsonJunction):
+        dest.add_qps(name, t, h, ES=X.EJ, winding=sp.simplify(G * X.winding))
+    elif isinstance(X, QuantumPhaseSlip):
+        dest.add_josephson(name, t, h, EJ=X.ES, winding=sp.simplify(G * X.winding))
+    else:  # pragma: no cover - defensive
+        raise TypeError(f"cannot move element {X!r}")
 
-    Because the source port then carries only the bare gyrator half-edge, the
-    gyrator is removed by the open/closed-terminated deletion rule.  The
-    transformation is a point transformation and so preserves the Hamiltonian
-    spectrum (Tellegen: a gyrator makes a reciprocal element behave as its dual).
 
-    Currently supports the single-element termination case: ``element_edge``
-    must be the only non-gyrative element on its port.
+def move_across_gyrator(circuit: Circuit, element_edges) -> Circuit:
+    """Move a reciprocal block across the gyrator terminating its port.
 
-    For a **linear** element the gyration ratio is absorbed into the dual value
-    (``L = C / G**2``), so any ``G`` is fine.  For a **nonlinear** element the
-    ratio lands in the cosine argument, ``cos(q / G)`` -- spectrally valid for
-    any ``G`` (the dual element carries ``winding = G``), but only a *standard*
-    phase slip when ``|G| = 1``; for a compact charge a non-integer ``1/G`` has
-    no integer-lattice representation (the diagonalizer raises when you quantize
-    it as compact, while an extended coordinate is unrestricted).  A ``|G| != 1``
-    nonlinear move therefore *warns* rather than refusing.
+    Implements the manuscript's **partial-dual move** (Sec. "Partial Dual
+    Transformations"): a reciprocal sub-network that *terminates* one half-edge
+    of a gyrator is relocated to the gyrator's other port as its **dual**, with
+    the gyration ratio carried by the conservation law ``phi_near = q_far / G``.
 
-    The move is a point transformation, so it **preserves well-posedness** (and
-    ill-posedness): the gyrator-coupled element that gives the moved element its
-    kinetic term on one side becomes the structure that constrains its dual on
-    the other.  A well-posed junction-via-gyrator (a JJ whose port sees an
-    effective capacitance, i.e. an *inductor* across the partner port) maps to a
-    well-posed phase-slip-via-gyrator, with the same spectrum.  If the input is
-    ill-posed -- e.g. a JJ given an effective *inductance* (a capacitor across
-    the partner port), so the JJ has no kinetic term -- the output is ill-posed
-    too, as it must be.
+    ``element_edges`` is one edge name (single one-port) or a list of edge names
+    forming the block.  The block must be **all** the non-gyrative elements on
+    one gyrator port, in **parallel** (sharing the two port nodes).  Duality
+    swaps parallel for series, so a parallel block ``X_1 || X_2 || ...`` becomes
+    the **series chain** of duals ``dual(X_1) - dual(X_2) - ...`` strung between
+    the two nodes of the far port (introducing intermediate nodes).  Per element:
+
+    * capacitor ``C``  ->  inductor ``L = C / G**2``
+    * inductor ``L``   ->  capacitor ``C = G**2 * L``
+    * Josephson ``E_J`` <-> quantum phase slip ``E_S`` (cosine argument / G)
+
+    The source port then carries only the bare gyrator half-edge, so the gyrator
+    is removed by the open/closed-terminated deletion rule.  The move is a point
+    transformation: it **preserves the spectrum and well-posedness** (verified --
+    e.g. a transmon ``JJ || C`` across a gyrator becomes a series ``QPS - L``
+    with the same spectrum, and a well-posed input maps to a well-posed output;
+    an ill-posed input -- a junction handed an effective *inductance*, say -- maps
+    to an ill-posed output, as it must).
+
+    For a **linear** element any ``G`` is fine (the ratio is in the value).  For
+    a **nonlinear** element the ratio lands in the cosine argument ``cos(q / G)``
+    (carried as ``winding = G``): spectrally valid for any ``G``, a standard
+    element only at ``|G| = 1``, and for a compact charge representable only when
+    ``1/G`` is an integer -- so ``|G| != 1`` *warns* rather than refusing.
     """
     import warnings
-    X = next((el for el in circuit._elements
-              if getattr(el, "_edge", None) is not None
-              and el._edge.name == element_edge), None)
-    if X is None:
-        raise ValueError(f"no one-port element on edge {element_edge!r}")
-    if isinstance(X, Gyrator):
-        raise ValueError(f"edge {element_edge!r} is a gyrator, not a one-port")
 
-    port = frozenset((X._edge.tail, X._edge.head))
+    if isinstance(element_edges, str):
+        element_edges = [element_edges]
+    if not element_edges:
+        raise ValueError("element_edges is empty")
 
-    # find the gyrator with a half-edge across the same port (X terminates it)
+    Xs = []
+    for name in element_edges:
+        X = next((el for el in circuit._elements
+                  if getattr(el, "_edge", None) is not None
+                  and el._edge.name == name), None)
+        if X is None:
+            raise ValueError(f"no one-port element on edge {name!r}")
+        if isinstance(X, Gyrator):
+            raise ValueError(f"edge {name!r} is a gyrator, not a one-port")
+        Xs.append(X)
+
+    ports = {frozenset((X._edge.tail, X._edge.head)) for X in Xs}
+    if len(ports) != 1:
+        raise ValueError(
+            "all moved elements must share the same two nodes (a parallel block "
+            f"on one gyrator port); got ports {ports}")
+    port = ports.pop()
+
+    # find the gyrator with a half-edge across that port (the block terminates it)
     gyr = near = far = None
     for el in circuit._elements:
         if not isinstance(el, Gyrator):
@@ -248,50 +275,48 @@ def move_across_gyrator(circuit: Circuit, element_edge: str) -> Circuit:
                 gyr, near, far = el, a, b
     if gyr is None:
         raise ValueError(
-            f"element on {element_edge!r} does not terminate a gyrator port "
+            f"the block {element_edges} does not terminate a gyrator port "
             "(no gyrator half-edge shares its two nodes)")
 
-    others = [el for el in circuit._elements
-              if el is not X and el is not gyr
-              and getattr(el, "_edge", None) is not None
-              and frozenset((el._edge.tail, el._edge.head)) == port]
-    if others:
+    # the block must be *all* non-gyrative elements on the port (so it empties)
+    on_port = [el for el in circuit._elements
+               if not isinstance(el, Gyrator)
+               and getattr(el, "_edge", None) is not None
+               and frozenset((el._edge.tail, el._edge.head)) == port]
+    if set(map(id, on_port)) != set(map(id, Xs)):
+        extra = [e._edge.name for e in on_port if id(e) not in set(map(id, Xs))]
         raise NotImplementedError(
-            "the source gyrator port carries other elements "
-            f"({[e._edge.name for e in others]}); only single-element "
-            "termination is supported so far")
+            "the move must carry the whole port across: the gyrator port also "
+            f"holds {extra}. Include them (keeping the gyrator for a partial "
+            "block is the not-yet-implemented general case).")
 
     G = gyr.G
-    nonlinear = isinstance(X, (JosephsonJunction, QuantumPhaseSlip))
-    if nonlinear and sp.simplify(G**2 - 1) != 0:
+    if any(isinstance(X, (JosephsonJunction, QuantumPhaseSlip)) for X in Xs) \
+            and sp.simplify(G**2 - 1) != 0:
         warnings.warn(
-            f"moving a {type(X).__name__} across a gyrator with |G| != 1 "
-            f"(G={G}) produces a cos(q/G) phase slip (winding = G): spectrally "
-            "valid, but a standard element only at |G| = 1. Quantized as a "
-            "compact coordinate it has no integer-lattice representation unless "
-            "1/G is an integer (the diagonalizer will raise); as an extended "
-            "coordinate it is unrestricted.", stacklevel=2)
+            f"moving a Josephson/phase-slip element across a gyrator with "
+            f"|G| != 1 (G={G}) produces a cos(q/G) element (winding = G): "
+            "spectrally valid, but a standard element only at |G| = 1, and for a "
+            "compact charge representable only when 1/G is an integer (the "
+            "diagonalizer raises otherwise); an extended coordinate is "
+            "unrestricted.", stacklevel=2)
 
     D = Circuit()
     title = getattr(circuit, "title", None)
-    D.title = f"{title} (moved {element_edge})" if title else "partial dual"
+    moved = "+".join(element_edges)
+    D.title = f"{title} (moved {moved})" if title else "partial dual"
     for el in circuit._elements:
-        if el is X or el is gyr:
+        if el is gyr or id(el) in set(map(id, Xs)):
             continue
         _readd_element(D, el)
 
-    # the dual element on the far port, value carried by the conservation law
-    name, t, h = X._edge.name, far.tail, far.head
-    if isinstance(X, Capacitor):
-        D.add_inductor(name, t, h, L=sp.simplify(X.C / G**2))
-    elif isinstance(X, Inductor):
-        D.add_capacitor(name, t, h, C=sp.simplify(G**2 * X.L))
-    elif isinstance(X, JosephsonJunction):
-        D.add_qps(name, t, h, ES=X.EJ, winding=sp.simplify(G * X.winding))
-    elif isinstance(X, QuantumPhaseSlip):
-        D.add_josephson(name, t, h, EJ=X.ES, winding=sp.simplify(G * X.winding))
-    else:  # pragma: no cover - defensive
-        raise TypeError(f"cannot move element {X!r}")
+    # parallel block -> series chain of duals between the far port's two nodes,
+    # threading intermediate nodes m1, m2, ... for the interior junctions
+    t0, hN = far.tail, far.head
+    n = len(Xs)
+    nodes = [t0] + [f"_m_{moved}_{i}" for i in range(1, n)] + [hN]
+    for i, X in enumerate(Xs):
+        _add_dual_oneport(D, X, X._edge.name, nodes[i], nodes[i + 1], G)
 
     D.ground = circuit.ground if circuit.ground in D.vertices else None
     return D
