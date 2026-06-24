@@ -103,8 +103,10 @@ def test_circulator_hamiltonian_matches_manuscript():
 
     assert sp.expand(result.H - H_paper) == 0
     assert result.complete
-    # the single constraint is a Noether constraint, the pair is canonical
-    assert [kind for kind, _ in result.constraints] == ["noether"]
+    # the gyrator's Noether constraint is found (alongside benign redundant-
+    # direction eliminations from completing the reduction), and the surviving
+    # pair (phi_v2, q_f3) is canonical
+    assert "noether" in [kind for kind, _ in result.constraints]
     pair_coords = {(a, b) for a, b, _ in result.conjugate_pairs}
     pair_coords |= {(b, a) for a, b, _ in result.conjugate_pairs}
     assert (phi2, q3) in pair_coords
@@ -440,6 +442,35 @@ def test_scqubits_cross_check_transmon_clean_oracle():
                              n_levels=5, ground="v1", cutoffs={"q_f1": 81},
                              scqubits_cutoff=60)
     assert r["max_abs_diff"] < 1e-9
+
+
+def test_gyrator_terminated_capacitor_is_lc_mode():
+    """A gyrator terminated by a capacitor presents an inductance L = C/G^2
+    (Tellegen): with a shunt C0 the circuit is a single LC oscillator with
+    omega = G/sqrt(C0 C).  Regression for the cyclic-drop bug, where the node
+    fluxes (which sit undifferentiated in the gyrator flux-sector but are absent
+    from the purely-capacitive energy) were wrongly dropped as cyclic, deleting
+    the mode and leaving zero coordinates."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import Circuit
+    A = Circuit()
+    A.add_capacitor("c0", "a", "g", C="C0")
+    A.add_capacitor("cb", "b", "g", C="C")
+    A.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G="G")
+    A.add_loop("f1", ["+c0", "-e1"])
+    A.add_loop("f2", ["+cb", "-e2"])
+    A.ground = "g"
+    r = A.hamiltonian(strict=False, canonical=True)
+    assert r.complete
+    assert len(r.modes()) == 1                       # one LC mode, not zero
+    # no eliminated coordinate leaks into H (chained-Noether resolution)
+    assert not (r.H.free_symbols & {sp.Symbol("q_f1"), sp.Symbol("q_f2")})
+    p = {"C0": 1.0, "C": 2.0, "G": 1.5}
+    ev = r.eigenenergies(p, n_levels=4)
+    ev = ev - ev[0]
+    omega = p["G"] / np.sqrt(p["C0"] * p["C"])
+    assert np.allclose(ev, np.arange(4) * omega, atol=1e-3)
 
 
 def test_gui_default_params_prefill():

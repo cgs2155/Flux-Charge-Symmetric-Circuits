@@ -53,6 +53,7 @@ verified by checking that the reduced symplectic form is non-degenerate.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -597,11 +598,19 @@ class Reducer:
             if sol:
                 self.impose(target, sol[0][target], kind=kept_types[r])
 
-        # cyclic coordinates: absent from the energy, not gauged / eliminated
-        E = self.energy()
+        # cyclic coordinates: those that appear in the Lagrangian *only* through
+        # their velocity (dL/dc == 0), hence genuinely ignorable.  Testing
+        # absence from the energy alone is wrong for LCG circuits: a node flux
+        # can sit undifferentiated in a gyrator's flux-sector
+        # ((G/2) <phi| A^T Gamma A |phidot>), or a loop charge in its
+        # charge-sector, while absent from the energy.  Such a coordinate is the
+        # momentum side of a gyrator-induced mode and must be retained for the
+        # Noether/symplectic reduction -- dropping it deletes real dynamics (e.g.
+        # a gyrator terminated by a capacitor, which is an LC oscillator).
+        L_cyc = self._reduced_lagrangian()
         self._cyclic = [c for c in self.coords
-                        if c not in E.free_symbols
-                        and c not in self._gauge and c not in self._eliminated]
+                        if c not in self._gauge and c not in self._eliminated
+                        and sp.diff(L_cyc, c) == 0]
         if self._cyclic:
             self._ops.append("drop cyclic: " + ", ".join(map(str, self._cyclic)))
 
@@ -668,9 +677,28 @@ class Reducer:
     # ------------------------------------------------------------------
     # assembling the Hamiltonian
     # ------------------------------------------------------------------
+    def _resolved_eliminations(self) -> "OrderedDict":
+        """Constraint substitutions with each right-hand side resolved so it
+        mentions no eliminated coordinate.
+
+        A later constraint's solved form may reference a coordinate eliminated
+        by an earlier one -- e.g. two chained Noether constraints
+        ``q_f1 = G(phi_g - phi_b)`` and ``q_f2 = -G phi_b - q_f1``.  Substituting
+        them one at a time reintroduces ``q_f1``; here we resolve the map to a
+        fixed point so every right-hand side is in terms of surviving
+        coordinates only.
+        """
+        elim = OrderedDict((c, sp.expand(e)) for c, e in self._constraints)
+        for _ in range(len(elim) + 1):
+            updated = OrderedDict((c, sp.expand(e.subs(elim))) for c, e in elim.items())
+            if updated == elim:
+                break
+            elim = updated
+        return elim
+
     def _reduced_lagrangian(self) -> sp.Expr:
         L = self.L
-        for coord, expr in self._constraints:
+        for coord, expr in self._resolved_eliminations().items():
             sub = {coord: expr, self.velmap[coord]: self._velocity_of(expr)}
             L = sp.expand(L.subs(sub))
         drop = dict(self._gauge)
