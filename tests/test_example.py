@@ -504,6 +504,39 @@ def test_move_across_gyrator_preserves_spectrum():
     assert len(q1) == 1 and q1[0].winding == 1
 
 
+def test_move_across_gyrator_preserves_well_posedness_JJ_to_QPS():
+    """Partial duality is a point transformation, so it preserves well-posedness
+    (manuscript Sec. "Partial Dual Transformations").  A WELL-POSED junction via
+    a gyrator -- an inductor across the partner port giving the JJ an effective
+    capacitance -- maps to a well-posed phase-slip circuit with the SAME
+    spectrum (the clean JJ <-> QPS Tellegen result at G=1)."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import Circuit, move_across_gyrator
+
+    A = Circuit()
+    A.add_inductor("l0", "a", "g", L="L0")          # gives the JJ effective C
+    A.add_josephson("jb", "b", "g", EJ="E_J")
+    A.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G=1)
+    A.add_loop("f1", ["+l0", "-e1"])
+    A.add_loop("f2", ["+jb", "-e2"])
+    A.ground = "g"
+    rA = A.hamiltonian(strict=False, canonical=True)
+    assert rA.complete
+
+    B = move_across_gyrator(A, "jb")               # JJ -> QPS, gyrator deleted
+    assert sorted(type(e).__name__ for e in B._elements) == ["Inductor", "QuantumPhaseSlip"]
+    rB = B.hamiltonian(strict=False, canonical=True)
+    assert rB.complete                              # still well-posed
+
+    p = {"L0": 1.0, "E_J": 8.0}
+    cutA = {str(b): 41 for _a, b, _c in rA.conjugate_pairs}
+    cutB = {str(b): 41 for _a, b, _c in rB.conjugate_pairs}
+    ea = rA.eigenenergies(p, n_levels=5, cutoffs=cutA); ea = ea - ea[0]
+    eb = rB.eigenenergies(p, n_levels=5, cutoffs=cutB); eb = eb - eb[0]
+    assert np.allclose(ea, eb, atol=1e-3)
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with

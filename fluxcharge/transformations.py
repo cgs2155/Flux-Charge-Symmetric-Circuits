@@ -215,11 +215,17 @@ def move_across_gyrator(circuit: Circuit, element_edge: str) -> Circuit:
     phase slip when ``|G| = 1``; for a compact charge a non-integer ``1/G`` has
     no integer-lattice representation (the diagonalizer raises when you quantize
     it as compact, while an extended coordinate is unrestricted).  A ``|G| != 1``
-    nonlinear move therefore *warns* rather than refusing.  Note also that a
-    single-element nonlinear move generally yields an ill-posed circuit (a bare
-    quantum phase slip needs a series inductor, a bare junction a parallel
-    capacitor); a well-posed nonlinear move must carry that parasitic across too
-    (the multi-element case).
+    nonlinear move therefore *warns* rather than refusing.
+
+    The move is a point transformation, so it **preserves well-posedness** (and
+    ill-posedness): the gyrator-coupled element that gives the moved element its
+    kinetic term on one side becomes the structure that constrains its dual on
+    the other.  A well-posed junction-via-gyrator (a JJ whose port sees an
+    effective capacitance, i.e. an *inductor* across the partner port) maps to a
+    well-posed phase-slip-via-gyrator, with the same spectrum.  If the input is
+    ill-posed -- e.g. a JJ given an effective *inductance* (a capacitor across
+    the partner port), so the JJ has no kinetic term -- the output is ill-posed
+    too, as it must be.
     """
     import warnings
     X = next((el for el in circuit._elements
