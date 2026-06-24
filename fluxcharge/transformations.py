@@ -165,3 +165,111 @@ def dual(circuit: Circuit) -> Circuit:
         D.set_flux_bias(node, ng)
 
     return D
+
+
+def _readd_element(dest: Circuit, el):
+    """Re-add a copy of *el* (any element type) to *dest*."""
+    if isinstance(el, Gyrator):
+        dest.add_gyrator((el.edge1.name, el.edge1.tail, el.edge1.head),
+                         (el.edge2.name, el.edge2.tail, el.edge2.head), G=el.G)
+    elif isinstance(el, Capacitor):
+        dest.add_capacitor(el._edge.name, el._edge.tail, el._edge.head, C=el.C)
+    elif isinstance(el, Inductor):
+        dest.add_inductor(el._edge.name, el._edge.tail, el._edge.head, L=el.L)
+    elif isinstance(el, JosephsonJunction):
+        dest.add_josephson(el._edge.name, el._edge.tail, el._edge.head, EJ=el.EJ)
+    elif isinstance(el, QuantumPhaseSlip):
+        dest.add_qps(el._edge.name, el._edge.tail, el._edge.head, ES=el.ES)
+    else:  # pragma: no cover - defensive
+        raise TypeError(f"cannot copy element {el!r}")
+
+
+def move_across_gyrator(circuit: Circuit, element_edge: str) -> Circuit:
+    """Move a reciprocal one-port across the gyrator terminating its port.
+
+    Implements the manuscript's **partial-dual move** (Sec. "Partial Dual
+    Transformations") in the Tellegen single-element case: a reciprocal one-port
+    element on ``element_edge`` that *terminates* one half-edge of a gyrator is
+    relocated to the gyrator's other port as its **dual**, with the gyration
+    ratio carried by the conservation law ``phi_near = q_far / G``:
+
+    * capacitor ``C``  ->  inductor ``L = C / G**2``
+    * inductor ``L``   ->  capacitor ``C = G**2 * L``
+    * Josephson ``E_J`` -> quantum phase slip ``E_S = E_J``
+    * quantum phase slip ``E_S`` -> Josephson ``E_J = E_S``
+
+    Because the source port then carries only the bare gyrator half-edge, the
+    gyrator is removed by the open/closed-terminated deletion rule.  The
+    transformation is a point transformation and so preserves the Hamiltonian
+    spectrum (Tellegen: a gyrator makes a reciprocal element behave as its dual).
+
+    Currently supports the single-element termination case: ``element_edge``
+    must be the only non-gyrative element on its port.  For the nonlinear
+    elements (JJ/QPS) the cosine argument picks up a factor ``1/G``, so a clean
+    dual requires ``|G| = 1``; otherwise a :class:`ValueError` is raised.
+    """
+    X = next((el for el in circuit._elements
+              if getattr(el, "_edge", None) is not None
+              and el._edge.name == element_edge), None)
+    if X is None:
+        raise ValueError(f"no one-port element on edge {element_edge!r}")
+    if isinstance(X, Gyrator):
+        raise ValueError(f"edge {element_edge!r} is a gyrator, not a one-port")
+
+    port = frozenset((X._edge.tail, X._edge.head))
+
+    # find the gyrator with a half-edge across the same port (X terminates it)
+    gyr = near = far = None
+    for el in circuit._elements:
+        if not isinstance(el, Gyrator):
+            continue
+        for a, b in ((el.edge1, el.edge2), (el.edge2, el.edge1)):
+            if frozenset((a.tail, a.head)) == port:
+                gyr, near, far = el, a, b
+    if gyr is None:
+        raise ValueError(
+            f"element on {element_edge!r} does not terminate a gyrator port "
+            "(no gyrator half-edge shares its two nodes)")
+
+    others = [el for el in circuit._elements
+              if el is not X and el is not gyr
+              and getattr(el, "_edge", None) is not None
+              and frozenset((el._edge.tail, el._edge.head)) == port]
+    if others:
+        raise NotImplementedError(
+            "the source gyrator port carries other elements "
+            f"({[e._edge.name for e in others]}); only single-element "
+            "termination is supported so far")
+
+    G = gyr.G
+    nonlinear = isinstance(X, (JosephsonJunction, QuantumPhaseSlip))
+    if nonlinear and sp.simplify(G**2 - 1) != 0:
+        raise ValueError(
+            "moving a Josephson junction / quantum phase slip across a gyrator "
+            f"with |G| != 1 (got G={G}) gives cos(q/G), which is not a standard "
+            "phase-slip/junction cosine; use |G| = 1 for the nonlinear Tellegen "
+            "move, or move a linear element.")
+
+    D = Circuit()
+    title = getattr(circuit, "title", None)
+    D.title = f"{title} (moved {element_edge})" if title else "partial dual"
+    for el in circuit._elements:
+        if el is X or el is gyr:
+            continue
+        _readd_element(D, el)
+
+    # the dual element on the far port, value carried by the conservation law
+    name, t, h = X._edge.name, far.tail, far.head
+    if isinstance(X, Capacitor):
+        D.add_inductor(name, t, h, L=sp.simplify(X.C / G**2))
+    elif isinstance(X, Inductor):
+        D.add_capacitor(name, t, h, C=sp.simplify(G**2 * X.L))
+    elif isinstance(X, JosephsonJunction):
+        D.add_qps(name, t, h, ES=X.EJ)
+    elif isinstance(X, QuantumPhaseSlip):
+        D.add_josephson(name, t, h, EJ=X.ES)
+    else:  # pragma: no cover - defensive
+        raise TypeError(f"cannot move element {X!r}")
+
+    D.ground = circuit.ground if circuit.ground in D.vertices else None
+    return D

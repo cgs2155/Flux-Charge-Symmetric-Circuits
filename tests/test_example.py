@@ -444,6 +444,50 @@ def test_scqubits_cross_check_transmon_clean_oracle():
     assert r["max_abs_diff"] < 1e-9
 
 
+def test_move_across_gyrator_preserves_spectrum():
+    """The partial-dual single-element move (Tellegen) is spectrum-preserving: a
+    capacitor terminating one gyrator port, moved across, becomes an inductor
+    L = C/G^2 on the other port (the emptied gyrator removed by terminated
+    deletion), and the circuit's spectrum is unchanged."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import Circuit, move_across_gyrator
+
+    def build():
+        A = Circuit()
+        A.add_capacitor("c0", "a", "g", C="C0")
+        A.add_capacitor("cb", "b", "g", C="C")
+        A.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G="G")
+        A.add_loop("f1", ["+c0", "-e1"])
+        A.add_loop("f2", ["+cb", "-e2"])
+        A.ground = "g"
+        return A
+
+    A = build()
+    rA = A.hamiltonian(strict=False, canonical=True)
+    B = move_across_gyrator(A, "cb")
+    # the moved element is now an inductor on the far port; gyrator gone
+    kinds = sorted(type(e).__name__ for e in B._elements)
+    assert kinds == ["Capacitor", "Inductor"]
+    rB = B.hamiltonian(strict=False, canonical=True)
+    for p in ({"C0": 1.0, "C": 2.0, "G": 1.5}, {"C0": 3.0, "C": 0.7, "G": 0.8}):
+        ea = rA.eigenenergies(p, n_levels=5); ea = ea - ea[0]
+        eb = rB.eigenenergies(p, n_levels=5); eb = eb - eb[0]
+        assert np.allclose(ea, eb, atol=1e-3)
+
+    # guard: moving a JJ/QPS across |G| != 1 is refused (cos(q/G) not standard)
+    import pytest as _pytest
+    J = Circuit()
+    J.add_capacitor("c0", "a", "g", C="C0")
+    J.add_josephson("jb", "b", "g", EJ="E_J")
+    J.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G="G")
+    J.add_loop("f1", ["+c0", "-e1"])
+    J.add_loop("f2", ["+jb", "-e2"])
+    J.ground = "g"
+    with _pytest.raises(ValueError):
+        move_across_gyrator(J, "jb")          # symbolic G -> |G|!=1 not provable
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with

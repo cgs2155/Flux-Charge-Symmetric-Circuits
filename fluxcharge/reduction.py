@@ -65,6 +65,38 @@ from .elements import CAPACITIVE, INDUCTIVE
 # ----------------------------------------------------------------------
 # helpers
 # ----------------------------------------------------------------------
+def _is_identically_zero(expr: sp.Expr, trials: int = 5, tol: float = 1e-9) -> bool:
+    """Robust, fast test for ``expr == 0`` identically.
+
+    ``sympy.simplify`` is reliable but pathologically slow on expressions mixing
+    trigonometric terms (Josephson/phase-slip cosines) with the dense rational
+    coefficients gyrators produce.  Here we try cheap structural checks, then
+    fall back to evaluating at several random points: a non-zero analytic
+    expression is non-zero at a generic point with probability one, so a handful
+    of trials is a sound zero-test for our use (deciding whether a reduction
+    direction is a symmetry of the energy)."""
+    import random
+    expr = sp.expand(expr)
+    if expr == 0:
+        return True
+    syms = sorted(expr.free_symbols, key=str)
+    if not syms:
+        try:
+            return abs(complex(expr)) <= tol
+        except (TypeError, ValueError):
+            return False
+    rng = random.Random(0)
+    for _ in range(trials):
+        subs = {s: sp.Float(rng.uniform(0.3, 2.7)) for s in syms}
+        try:
+            val = complex(expr.subs(subs))
+        except (TypeError, ValueError):
+            return False           # cannot evaluate -> assume non-zero
+        if abs(val) > tol:
+            return False
+    return True
+
+
 def velocity_free_part(expr: sp.Expr, velocities: Sequence[sp.Symbol]) -> sp.Expr:
     """Sum of the terms of *expr* containing none of the *velocities*."""
     expr = sp.expand(expr)
@@ -655,7 +687,7 @@ class Reducer:
             acted = False
             for nvec in null:
                 dderiv = sp.expand(sum(nvec[i] * gradH[i] for i in range(len(survivors))))
-                if sp.simplify(dderiv) != 0:
+                if not _is_identically_zero(dderiv):
                     continue  # this null direction carries energy: a real singularity
                 nz = [i for i in range(len(survivors)) if sp.simplify(nvec[i]) != 0]
                 if not nz:

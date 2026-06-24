@@ -41,7 +41,7 @@ from .visualize import circuit_to_networkx, draw_circuit
 from .schematic import draw_schematic
 from .netlist import from_netlist, parse_netlist, to_netlist
 from .interop import from_scqubits_yaml, to_scqubits_yaml, cross_check_spectrum
-from .transformations import dual
+from .transformations import dual, move_across_gyrator
 from .numerics import (
     classify_modes,
     eigenenergies,
@@ -89,6 +89,7 @@ __all__ = [
     "to_scqubits_yaml",
     "cross_check_spectrum",
     "dual",
+    "move_across_gyrator",
     # numerical analysis
     "classify_modes",
     "eigenenergies",
