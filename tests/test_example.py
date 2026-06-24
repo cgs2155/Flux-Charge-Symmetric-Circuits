@@ -607,6 +607,33 @@ def test_gyrator_terminated_capacitor_is_lc_mode():
     assert np.allclose(ev, np.arange(4) * omega, atol=1e-3)
 
 
+def test_gui_mode_type_options():
+    """The diagonalize dialog's data: per conjugate pair a (flux, charge,
+    default_kind, warning).  Defaults are the auto classification; a warning
+    fires only for the subtle cases (a coordinate inside a nonlinear cosine ->
+    coordinate-dependent bracket)."""
+    _require_numpy()
+    from fluxcharge import library, Circuit
+    from fluxcharge.gui import mode_type_options
+
+    tr = mode_type_options(library.transmon().hamiltonian(ground="v1", canonical=True))
+    assert len(tr) == 1 and tr[0][2] == "periodic" and tr[0][3] is None  # no warning
+
+    fx = mode_type_options(library.fluxonium().hamiltonian(
+        ground="v1", open_loops="f3", canonical=True))
+    assert fx[0][2] == "extended" and fx[0][3] is None
+
+    # multi-mode non-reciprocal: coordinate-dependent bracket -> warned
+    B = Circuit()
+    B.add_capacitor("c0", "a", "g", C="C0")
+    B.add_inductor("lq", "a", "g", L="Lq")
+    B.add_josephson("jb", "b", "g", EJ="E_J")
+    B.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G=1)
+    B.ground = "g"
+    rows = mode_type_options(B.hamiltonian(strict=False, canonical=True))
+    assert any(w is not None for *_x, w in rows)
+
+
 def test_gui_default_params_prefill():
     """The diagonalization box pre-fills a default value for every parameter the
     circuit needs (biases -> 0), keeps values the user already typed, and can

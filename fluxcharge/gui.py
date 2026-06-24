@@ -116,7 +116,8 @@ def compute(netlist_text, canonical=True, schematic_path=None, draw=True):
     }
 
 
-def numerical_summary(netlist_text, params, n_levels=6, canonical=True, cutoffs=None):
+def numerical_summary(netlist_text, params, n_levels=6, canonical=True,
+                      cutoffs=None, mode_types=None):
     """Headless numerical pipeline used by the UI (and easy to test).
 
     Parses *netlist_text*, reduces, classifies the modes and diagonalizes with
@@ -131,17 +132,21 @@ def numerical_summary(netlist_text, params, n_levels=6, canonical=True, cutoffs=
     ground = getattr(ckt, "ground", None)
     open_loops = getattr(ckt, "open_loops", None) or None
     result = ckt.hamiltonian(ground=ground, open_loops=open_loops, canonical=canonical)
-    return summary_from_result(result, params, n_levels, cutoffs=cutoffs)
+    return summary_from_result(result, params, n_levels, cutoffs=cutoffs,
+                               mode_types=mode_types)
 
 
-def summary_from_result(result, params, n_levels=6, cutoffs=None):
+def summary_from_result(result, params, n_levels=6, cutoffs=None, mode_types=None):
     """Build the numerical-summary dict from an already-reduced result.
 
     Lets the UI skip the (re)reduction when the circuit is unchanged since the
     last Generate -- diagonalization then costs only the matrix build + eigh.
+    *mode_types* (``{flux_symbol: "extended"|"periodic"|"dual-periodic"|"free"}``)
+    overrides the automatic compact/extended classification per mode.
     """
-    modes = result.modes()
-    ev = result.eigenenergies(params, n_levels=n_levels, cutoffs=cutoffs)
+    modes = result.modes(mode_types=mode_types)
+    ev = result.eigenenergies(params, n_levels=n_levels, cutoffs=cutoffs,
+                              mode_types=mode_types)
     return {
         "result": result,
         "modes": [(m.flux, m.charge, m.kind) for m in modes],
@@ -149,6 +154,53 @@ def summary_from_result(result, params, n_levels=6, cutoffs=None):
         "transitions": [float(ev[i] - ev[0]) for i in range(1, len(ev))],
         "single_mode": len(modes) == 1,
     }
+
+
+#: human label <-> classify_modes kind, for the mode-type dialog
+MODE_KIND_LABELS = [
+    ("extended", "Extended  (oscillator / grid)"),
+    ("periodic", "Compact flux  (charge basis)"),
+    ("dual-periodic", "Compact charge  (flux basis)"),
+    ("free", "Free  (no confinement)"),
+]
+
+
+def mode_type_options(result):
+    """Per conjugate pair, the data the 'declare mode types' dialog needs:
+    ``(flux, charge, default_kind, warning_or_None)``.
+
+    ``default_kind`` is the automatic compact/extended classification.  A warning
+    flags modes where the choice is subtle: a coordinate-dependent symplectic
+    bracket (gyrator x nonlinearity -- canonical quantization is ambiguous and
+    the diagonalizer will likely error), or a free mode (no confinement)."""
+    from .numerics import classify_modes, FREE
+    modes = classify_modes(result)
+    coords = set(result.coordinates)
+    H = sp.sympify(result.H)
+
+    # coordinates that enter a cosine/sine NONLINEARLY (the argument's derivative
+    # still depends on a coordinate) signal a coordinate-dependent symplectic
+    # bracket -- gyrator x nonlinearity -- where canonical quantization is
+    # ambiguous and the diagonalizer will likely error.
+    bad = set()
+    for fn in (sp.cos, sp.sin):
+        for atom in H.atoms(fn):
+            arg = atom.args[0]
+            for x in (arg.free_symbols & coords):
+                if sp.diff(arg, x).free_symbols & coords:
+                    bad |= (arg.free_symbols & coords)
+
+    rows = []
+    for m in modes:
+        warn = None
+        if {m.flux, m.charge} & bad:
+            warn = ("appears inside a nonlinear cosine (gyrator x nonlinear -> "
+                    "coordinate-dependent bracket); canonical quantization is "
+                    "ambiguous and the diagonalizer will likely error")
+        elif m.kind == FREE:
+            warn = "free mode: no confining quadratic or cosine term"
+        rows.append((m.flux, m.charge, m.kind, warn))
+    return rows
 
 
 def _is_bias_param(name):
@@ -980,6 +1032,61 @@ def main():  # pragma: no cover - interactive
                                open_loops=getattr(ckt, "open_loops", None) or None,
                                canonical=True)
 
+    def _ask_mode_types(result):
+        """Modal dialog: per conjugate pair, choose extended vs compact, defaulted
+        to the automatic classification, with warnings for the subtle cases.
+        Returns the mode_types dict (str(flux) -> kind), or None if cancelled."""
+        rows = mode_type_options(result)
+        if not rows:
+            return {}
+        label2val = {lab: val for val, lab in MODE_KIND_LABELS}
+        val2label = {val: lab for val, lab in MODE_KIND_LABELS}
+        labels = [lab for _v, lab in MODE_KIND_LABELS]
+
+        win = tk.Toplevel(root)
+        win.title("Declare mode types")
+        win.transient(root)
+        win.configure(bg=BG)
+        ttk.Label(win, wraplength=470, style="Muted.TLabel",
+                  text="Choose how each mode is quantized. Compactness is physical "
+                       "input (an island's phase lives on a circle, an inductive "
+                       "loop's flux on the line). Defaults are the automatic "
+                       "classification — change one only if you know its "
+                       "compactness."
+                  ).grid(row=0, column=0, columnspan=2, padx=12, pady=(12, 8), sticky="w")
+        combos = []
+        r = 1
+        for flux, charge, default_kind, warn in rows:
+            ttk.Label(win, text=f"{flux}  ↔  {charge}").grid(
+                row=r, column=0, sticky="w", padx=12, pady=2)
+            cb = ttk.Combobox(win, values=labels, state="readonly", width=30)
+            cb.set(val2label.get(default_kind, labels[0]))
+            cb.grid(row=r, column=1, sticky="w", padx=12, pady=2)
+            combos.append((str(flux), cb))
+            r += 1
+            if warn:
+                ttk.Label(win, text="⚠  " + warn, wraplength=450,
+                          foreground="#b25c00", background=BG).grid(
+                    row=r, column=0, columnspan=2, sticky="w", padx=28, pady=(0, 4))
+                r += 1
+
+        holder = {"mt": None, "ok": False}
+
+        def on_ok():
+            holder["mt"] = {flux: label2val[cb.get()] for flux, cb in combos}
+            holder["ok"] = True
+            win.destroy()
+
+        btns = ttk.Frame(win)
+        btns.grid(row=r, column=0, columnspan=2, pady=12)
+        ttk.Button(btns, text="Diagonalize", command=on_ok).pack(side="left", padx=5)
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="left", padx=5)
+        win.bind("<Return>", lambda _e: on_ok())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.grab_set()
+        root.wait_window(win)
+        return holder["mt"] if holder["ok"] else None
+
     def diagonalize():
         text = netlist.get("1.0", "end-1c")
         try:
@@ -991,15 +1098,21 @@ def main():  # pragma: no cover - interactive
             return
         unit = "GHz" if units_var.get() else ""
 
-        # reuse the reduction from the last Generate when the circuit is unchanged,
-        # so diagonalizing costs only the matrix build + eigh (not a re-reduction)
-        cached = (last["out"] if last["text"] == text and last["out"] else None)
+        # reduce first (reuse the last Generate when unchanged) so the dialog can
+        # list the modes; this also lets the diagonalization reuse the reduction
+        try:
+            res = _current_result(text)
+        except Exception as exc:
+            report_error(exc)
+            return
+
+        mode_types = _ask_mode_types(res)
+        if mode_types is None:
+            return                                  # user cancelled
 
         def work():
-            if cached is not None:
-                return summary_from_result(cached["result"], params, n_levels=n,
-                                           cutoffs=cutoffs)
-            return numerical_summary(text, params, n_levels=n, cutoffs=cutoffs)
+            return summary_from_result(res, params, n_levels=n, cutoffs=cutoffs,
+                                       mode_types=mode_types)
 
         run_async(work, lambda summ: _show_diag(summ, params, n, unit, cutoffs),
                   busy_text="diagonalizing…")
