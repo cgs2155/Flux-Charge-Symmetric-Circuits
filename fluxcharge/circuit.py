@@ -81,11 +81,11 @@ class Circuit:
     def add_inductor(self, name, tail, head, L=None):
         return self._add_element(Inductor(name, tail, head, L))
 
-    def add_josephson(self, name, tail, head, EJ=None):
-        return self._add_element(JosephsonJunction(name, tail, head, EJ))
+    def add_josephson(self, name, tail, head, EJ=None, winding=1):
+        return self._add_element(JosephsonJunction(name, tail, head, EJ, winding))
 
-    def add_qps(self, name, tail, head, ES=None):
-        return self._add_element(QuantumPhaseSlip(name, tail, head, ES))
+    def add_qps(self, name, tail, head, ES=None, winding=1):
+        return self._add_element(QuantumPhaseSlip(name, tail, head, ES, winding))
 
     def add_gyrator(self, edge1, edge2, G=None):
         """Add an ideal gyrator coupling two edges.

@@ -475,8 +475,10 @@ def test_move_across_gyrator_preserves_spectrum():
         eb = rB.eigenenergies(p, n_levels=5); eb = eb - eb[0]
         assert np.allclose(ea, eb, atol=1e-3)
 
-    # guard: moving a JJ/QPS across |G| != 1 is refused (cos(q/G) not standard)
-    import pytest as _pytest
+    # nonlinear move: JJ -> QPS, with the gyration ratio in the cosine argument
+    # (winding = G). |G| != 1 warns (cos(q/G) is only a standard slip at |G|=1)
+    # but still produces the element; |G| = 1 is the clean Tellegen JJ <-> QPS.
+    import warnings as _w
     J = Circuit()
     J.add_capacitor("c0", "a", "g", C="C0")
     J.add_josephson("jb", "b", "g", EJ="E_J")
@@ -484,8 +486,22 @@ def test_move_across_gyrator_preserves_spectrum():
     J.add_loop("f1", ["+c0", "-e1"])
     J.add_loop("f2", ["+jb", "-e2"])
     J.ground = "g"
-    with _pytest.raises(ValueError):
-        move_across_gyrator(J, "jb")          # symbolic G -> |G|!=1 not provable
+    with _w.catch_warnings(record=True) as w:
+        _w.simplefilter("always")
+        DJ = move_across_gyrator(J, "jb")            # symbolic G -> warns, no refuse
+    assert any("cos(q/G)" in str(x.message) for x in w)
+    qps = [e for e in DJ._elements if type(e).__name__ == "QuantumPhaseSlip"]
+    assert len(qps) == 1 and qps[0].winding == sp.Symbol("G")  # cos(q/G)
+
+    # at G = 1 the dual is a standard unit phase slip (winding 1, clean Tellegen)
+    J1 = Circuit()
+    J1.add_capacitor("c0", "a", "g", C="C0")
+    J1.add_josephson("jb", "b", "g", EJ="E_J")
+    J1.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G=1)
+    J1.add_loop("f1", ["+c0", "-e1"]); J1.add_loop("f2", ["+jb", "-e2"]); J1.ground = "g"
+    D1 = move_across_gyrator(J1, "jb")
+    q1 = [e for e in D1._elements if type(e).__name__ == "QuantumPhaseSlip"]
+    assert len(q1) == 1 and q1[0].winding == 1
 
 
 def test_gyrator_terminated_capacitor_is_lc_mode():

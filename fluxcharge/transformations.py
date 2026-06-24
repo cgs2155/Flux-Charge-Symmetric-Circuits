@@ -130,9 +130,9 @@ def dual(circuit: Circuit) -> Circuit:
         elif isinstance(elem, Inductor):
             D.add_capacitor(e.name, t, h, C=elem.L)
         elif isinstance(elem, JosephsonJunction):
-            D.add_qps(e.name, t, h, ES=elem.EJ)
+            D.add_qps(e.name, t, h, ES=elem.EJ, winding=elem.winding)
         elif isinstance(elem, QuantumPhaseSlip):
-            D.add_josephson(e.name, t, h, EJ=elem.ES)
+            D.add_josephson(e.name, t, h, EJ=elem.ES, winding=elem.winding)
         else:  # pragma: no cover - defensive
             raise TypeError(f"cannot dualize element {elem!r}")
 
@@ -177,9 +177,11 @@ def _readd_element(dest: Circuit, el):
     elif isinstance(el, Inductor):
         dest.add_inductor(el._edge.name, el._edge.tail, el._edge.head, L=el.L)
     elif isinstance(el, JosephsonJunction):
-        dest.add_josephson(el._edge.name, el._edge.tail, el._edge.head, EJ=el.EJ)
+        dest.add_josephson(el._edge.name, el._edge.tail, el._edge.head,
+                           EJ=el.EJ, winding=el.winding)
     elif isinstance(el, QuantumPhaseSlip):
-        dest.add_qps(el._edge.name, el._edge.tail, el._edge.head, ES=el.ES)
+        dest.add_qps(el._edge.name, el._edge.tail, el._edge.head,
+                     ES=el.ES, winding=el.winding)
     else:  # pragma: no cover - defensive
         raise TypeError(f"cannot copy element {el!r}")
 
@@ -204,10 +206,22 @@ def move_across_gyrator(circuit: Circuit, element_edge: str) -> Circuit:
     spectrum (Tellegen: a gyrator makes a reciprocal element behave as its dual).
 
     Currently supports the single-element termination case: ``element_edge``
-    must be the only non-gyrative element on its port.  For the nonlinear
-    elements (JJ/QPS) the cosine argument picks up a factor ``1/G``, so a clean
-    dual requires ``|G| = 1``; otherwise a :class:`ValueError` is raised.
+    must be the only non-gyrative element on its port.
+
+    For a **linear** element the gyration ratio is absorbed into the dual value
+    (``L = C / G**2``), so any ``G`` is fine.  For a **nonlinear** element the
+    ratio lands in the cosine argument, ``cos(q / G)`` -- spectrally valid for
+    any ``G`` (the dual element carries ``winding = G``), but only a *standard*
+    phase slip when ``|G| = 1``; for a compact charge a non-integer ``1/G`` has
+    no integer-lattice representation (the diagonalizer raises when you quantize
+    it as compact, while an extended coordinate is unrestricted).  A ``|G| != 1``
+    nonlinear move therefore *warns* rather than refusing.  Note also that a
+    single-element nonlinear move generally yields an ill-posed circuit (a bare
+    quantum phase slip needs a series inductor, a bare junction a parallel
+    capacitor); a well-posed nonlinear move must carry that parasitic across too
+    (the multi-element case).
     """
+    import warnings
     X = next((el for el in circuit._elements
               if getattr(el, "_edge", None) is not None
               and el._edge.name == element_edge), None)
@@ -244,11 +258,13 @@ def move_across_gyrator(circuit: Circuit, element_edge: str) -> Circuit:
     G = gyr.G
     nonlinear = isinstance(X, (JosephsonJunction, QuantumPhaseSlip))
     if nonlinear and sp.simplify(G**2 - 1) != 0:
-        raise ValueError(
-            "moving a Josephson junction / quantum phase slip across a gyrator "
-            f"with |G| != 1 (got G={G}) gives cos(q/G), which is not a standard "
-            "phase-slip/junction cosine; use |G| = 1 for the nonlinear Tellegen "
-            "move, or move a linear element.")
+        warnings.warn(
+            f"moving a {type(X).__name__} across a gyrator with |G| != 1 "
+            f"(G={G}) produces a cos(q/G) phase slip (winding = G): spectrally "
+            "valid, but a standard element only at |G| = 1. Quantized as a "
+            "compact coordinate it has no integer-lattice representation unless "
+            "1/G is an integer (the diagonalizer will raise); as an extended "
+            "coordinate it is unrestricted.", stacklevel=2)
 
     D = Circuit()
     title = getattr(circuit, "title", None)
@@ -265,9 +281,9 @@ def move_across_gyrator(circuit: Circuit, element_edge: str) -> Circuit:
     elif isinstance(X, Inductor):
         D.add_capacitor(name, t, h, C=sp.simplify(G**2 * X.L))
     elif isinstance(X, JosephsonJunction):
-        D.add_qps(name, t, h, ES=X.EJ)
+        D.add_qps(name, t, h, ES=X.EJ, winding=sp.simplify(G * X.winding))
     elif isinstance(X, QuantumPhaseSlip):
-        D.add_josephson(name, t, h, EJ=X.ES)
+        D.add_josephson(name, t, h, EJ=X.ES, winding=sp.simplify(G * X.winding))
     else:  # pragma: no cover - defensive
         raise TypeError(f"cannot move element {X!r}")
 

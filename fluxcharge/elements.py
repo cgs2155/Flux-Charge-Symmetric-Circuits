@@ -135,15 +135,20 @@ class JosephsonJunction(Element):
     convention.  The Lagrangian therefore picks up ``+E_J cos(Phi)``.
     """
 
-    def __init__(self, name, tail, head, EJ=None):
+    def __init__(self, name, tail, head, EJ=None, winding=1):
         self.name = name
         self.EJ = _as_symbol(EJ, f"E_J{{{name}}}")
+        # winding scales the cosine argument: energy -E_J cos(Phi / winding).
+        # winding = 1 is the ordinary junction; the partial-dual move across a
+        # gyrator of ratio G produces winding = G (the cos(q/G) of Tellegen).
+        self.winding = sp.sympify(winding)
+        w = self.winding
         self._edge = Edge(
             name=name,
             tail=tail,
             head=head,
             edge_class=INDUCTIVE,
-            energy=lambda Phi, EJ=self.EJ: -EJ * sp.cos(Phi),
+            energy=lambda Phi, EJ=self.EJ, w=w: -EJ * sp.cos(Phi / w),
             element=self,
         )
 
@@ -158,15 +163,20 @@ class QuantumPhaseSlip(Element):
     Josephson junction), in the convention 2e = 1.
     """
 
-    def __init__(self, name, tail, head, ES=None):
+    def __init__(self, name, tail, head, ES=None, winding=1):
         self.name = name
         self.ES = _as_symbol(ES, f"E_S{{{name}}}")
+        # winding scales the cosine argument: energy -E_S cos(Q / winding).
+        # winding = 1 is the ordinary phase slip; the partial-dual move across a
+        # gyrator of ratio G produces winding = G.
+        self.winding = sp.sympify(winding)
+        w = self.winding
         self._edge = Edge(
             name=name,
             tail=tail,
             head=head,
             edge_class=CAPACITIVE,
-            energy=lambda Q, ES=self.ES: -ES * sp.cos(Q),
+            energy=lambda Q, ES=self.ES, w=w: -ES * sp.cos(Q / w),
             element=self,
         )
 
