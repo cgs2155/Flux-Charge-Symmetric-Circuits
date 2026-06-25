@@ -652,6 +652,45 @@ def test_interactive_spectrum_slider_updates():
     assert "G" in slc
 
 
+def test_interactive_bias_sliders_and_vs_param():
+    """Bias-aware ranges + the evals/transitions-vs-parameter view.  An external
+    flux defaults to a 0..2*pi sweep and is auto-chosen as the x-axis; the
+    fluxonium spectrum then modulates with it.  An offset charge defaults to
+    0..1, and the transitions view plots f_{i,i+1}."""
+    _require_numpy()
+    import math
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    from fluxcharge import library
+    from fluxcharge.interactive import (spectrum_vs_param, _default_ranges,
+                                        is_flux_bias, is_charge_bias)
+
+    # bias-aware default spans: flux 0..2pi (sweet spot pi), charge 0..1
+    fx = library.fluxonium().hamiltonian(ground="v1", open_loops="f3")
+    dr = _default_ranges(fx)
+    assert is_flux_bias("phi_ext_f1") and not is_charge_bias("phi_ext_f1")
+    assert dr["phi_ext_f1"] == (0.0, 2 * math.pi, math.pi)
+
+    # auto-sweep picks the flux bias; the spectrum modulates with it
+    fig, sl = spectrum_vs_param(fx, ranges={"E_J": (1, 8, 5)},
+                                n_levels=3, cutoffs={"phi_v2": 60},
+                                npoints=15, show=False)
+    assert "phi_ext_f1" in sl                       # sweep slider present
+    y1 = fig.axes[0].lines[1].get_ydata()           # |1> curve over the flux sweep
+    assert np.nanmax(y1) - np.nanmin(y1) > 0.05     # it actually modulates
+
+    # transitions view: one fewer curve than levels (consecutive gaps)
+    cpb = library.cooper_pair_box().hamiltonian(ground="v1")
+    figc, _ = spectrum_vs_param(cpb, sweep="n_g_v2", quantity="transitions",
+                                ranges={"E_J": (1, 15, 1), "C": (0.3, 2, 1)},
+                                n_levels=3, cutoffs={"q_f1": 61}, npoints=15, show=False)
+    # 2 transition curves (f01, f12) for 3 levels; charge dispersion visible at E_J=1
+    curves = [ln for ln in figc.axes[0].lines if ln.get_label().startswith("$f")]
+    assert len(curves) == 2
+    assert np.nanmax(curves[0].get_ydata()) - np.nanmin(curves[0].get_ydata()) > 1e-3
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with
