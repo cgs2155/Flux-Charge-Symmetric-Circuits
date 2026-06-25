@@ -107,13 +107,16 @@ def _normalize_ranges(result, ranges):
     return out
 
 
-def ranges_from_params(result, params, *, factor=3.0) -> "Dict[str, Tuple[float, float, float]]":
+def ranges_from_params(result, params, *, down=15.0, up=3.0) -> "Dict[str, Tuple[float, float, float]]":
     """Build slider ``(lo, hi, init)`` ranges centred on a known parameter point.
 
     Each external bias keeps its physical period (flux ``0..2*pi``, charge
-    ``0..1``) with the given value as the initial position; every other parameter
-    gets a span ``[v/factor, v*factor]`` around its value ``v`` (a decade-ish
-    window), so the explorer opens already centred on the user's circuit."""
+    ``0..1``) with the given value as the initial position.  Every other
+    parameter gets an *asymmetric* span ``[v/down, v*up]`` around its value ``v``,
+    weighted toward smaller values: the interesting physics often lives where an
+    energy scale is small (e.g. a transmon's charge dispersion only switches on
+    as ``E_J`` drops toward ``E_C``), so the slider must reach well below the
+    starting value, not just +/- a factor of a few."""
     out = _default_ranges(result)
     pv = {str(k): float(v) for k, v in (params or {}).items()}
     for name in list(out):
@@ -124,9 +127,9 @@ def ranges_from_params(result, params, *, factor=3.0) -> "Dict[str, Tuple[float,
         elif name in pv:
             v = pv[name]
             if v > 0:
-                out[name] = (v / factor, v * factor, v)
+                out[name] = (v / down, v * up, v)
             elif v < 0:
-                out[name] = (v * factor, v / factor, v)
+                out[name] = (v * up, v / down, v)
             else:
                 out[name] = (0.0, 1.0, 0.0)
     return out
