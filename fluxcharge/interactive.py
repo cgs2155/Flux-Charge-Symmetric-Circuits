@@ -46,6 +46,28 @@ def is_charge_bias(name: str) -> bool:
     return str(name).startswith("n_g_")
 
 
+def _pretty_label(name: str) -> str:
+    """A readable math label for a parameter symbol.  Bias symbols get their
+    physics name (``phi_ext_f1`` -> external flux on f1, ``n_g_v2`` -> gate
+    charge on v2); everything else falls back to the plain sympy rendering
+    (``E_J`` -> ``E_{J}``), which sympy already typesets well."""
+    name = str(name)
+    if is_flux_bias(name):
+        return r"$\Phi_{\mathrm{ext}}^{\,%s}$" % name[len("phi_ext_"):]
+    if is_charge_bias(name):
+        return r"$n_{g}^{\,%s}$" % name[len("n_g_"):]
+    return f"${sp.latex(sp.Symbol(name))}$"
+
+
+def _axis_label(name: str) -> str:
+    """x-axis label for a swept parameter (a touch more descriptive)."""
+    if is_flux_bias(name):
+        return _pretty_label(name) + r"  (external flux, $2\pi$ period)"
+    if is_charge_bias(name):
+        return _pretty_label(name) + r"  (gate charge, period 1)"
+    return _pretty_label(name)
+
+
 def _default_ranges(result, span=(0.1, 10.0)) -> "Dict[str, Tuple[float, float, float]]":
     """Per-parameter ``(lo, hi, init)`` defaults.
 
@@ -141,7 +163,7 @@ def spectrum_slider(result, ranges: Optional[Dict] = None, *, n_levels: int = 6,
     for k, name in enumerate(names):
         lo, hi, ini = rng[name]
         sax = fig.add_axes([0.12, 0.06 + 0.05 * k, 0.78, 0.03])
-        sliders[name] = Slider(sax, f"${sp.latex(sp.Symbol(name))}$", lo, hi, valinit=ini)
+        sliders[name] = Slider(sax, _pretty_label(name), lo, hi, valinit=ini)
 
     def update(_event=None):
         params = {n: sliders[n].val for n in names}
@@ -194,11 +216,19 @@ def _levels_to_quantity(levels, quantity):
     return levels
 
 
+def _default_drive(result):
+    """The natural drive operator for transition strengths: the charge of the
+    first conjugate pair (capacitive coupling is the usual microwave drive)."""
+    if result.conjugate_pairs:
+        return str(result.conjugate_pairs[0][1])
+    return None
+
+
 def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict] = None,
                       *, n_levels: int = 6, cutoffs: Optional[Dict] = None,
                       quantity: str = "levels", npoints: int = 41,
-                      relative: bool = True, title: Optional[str] = None,
-                      show: bool = True):
+                      relative: bool = True, weight_by=None, cmap: str = "viridis",
+                      title: Optional[str] = None, show: bool = True):
     """Plot the spectrum as **curves vs one swept parameter**, with sliders for
     the rest (the ``scqubits.plot_evals_vs_paramvals`` pattern, made live).
 
@@ -206,6 +236,10 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
       (flux/charge sweep), else the first parameter.
     * ``quantity`` -- ``"levels"`` (E_i - E_0) or ``"transitions"`` (consecutive
       gaps f_{i,i+1}, e.g. f01, f12 -- spectroscopy lines).
+    * ``weight_by`` -- colour each curve by a **transition matrix element**
+      ``|<i|op|i+1>|`` (transitions) / ``|<0|op|i>|`` (levels): pass a coordinate
+      name, or ``True`` for the natural charge drive.  Bright = strongly driven,
+      so dark stretches are forbidden/weak transitions.  Adds a colourbar.
     * the swept parameter shows a movable marker; dragging another slider
       recomputes every curve.
 
@@ -214,6 +248,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
     import numpy as np
     import matplotlib.pyplot as plt
     from matplotlib.widgets import Slider
+    from matplotlib.collections import LineCollection
 
     if quantity not in ("levels", "transitions"):
         raise ValueError("quantity must be 'levels' or 'transitions'")
@@ -227,6 +262,9 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
         raise ValueError(f"sweep parameter {sweep!r} is not among {names}")
     others = [n for n in names if n != sweep]
 
+    drive = _default_drive(result) if weight_by is True else (
+        str(weight_by) if weight_by else None)
+
     lo, hi, init = rng[sweep]
     xs = np.linspace(lo, hi, npoints)
 
@@ -235,7 +273,10 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
                     else [f"$|{i}\\rangle$" for i in range(n_curves)])
 
     def compute(slider_vals):
+        """Return (Y, W): the plotted quantity and, if weighting, the matrix
+        element magnitude per curve -- both shaped (npoints, n_curves)."""
         Y = np.full((len(xs), n_curves), np.nan)
+        W = np.full((len(xs), n_curves), np.nan) if drive else None
         for j, x in enumerate(xs):
             params = dict(slider_vals); params[sweep] = float(x)
             try:
@@ -243,38 +284,59 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
                                      cutoffs=cutoffs, relative=relative)
                 q = _levels_to_quantity(lv, quantity)
                 Y[j, :len(q)] = q[:n_curves]
+                if drive:
+                    M = np.abs(np.asarray(result.matrix_elements(
+                        drive, params, n_levels=n_levels,
+                        **({"cutoffs": cutoffs} if cutoffs else {}))))
+                    for i in range(n_curves):
+                        a, b = (i, i + 1) if quantity == "transitions" else (0, i)
+                        if a < M.shape[0] and b < M.shape[1]:
+                            W[j, i] = M[a, b]
             except Exception:
                 pass  # leave NaN at unreachable points
-        return Y
+        return Y, W
 
-    fig = plt.figure(figsize=(7.5, 5.2))
+    fig = plt.figure(figsize=(7.8, 5.2))
     n_sl = len(others)
-    ax = fig.add_axes([0.12, 0.16 + 0.06 * n_sl, 0.82, 0.76 - 0.06 * n_sl])
-    xlabel = sweep
-    if is_flux_bias(sweep):
-        xlabel = r"$\Phi_\mathrm{ext}/\varphi_0$  (" + sweep + ")"
-    elif is_charge_bias(sweep):
-        xlabel = r"$n_g$  (" + sweep + ")"
-    ax.set_xlabel(xlabel)
+    ax = fig.add_axes([0.12, 0.16 + 0.06 * n_sl, 0.74 if drive else 0.82,
+                       0.76 - 0.06 * n_sl])
+    ax.set_xlabel(_axis_label(sweep))
     ax.set_ylabel("transition (GHz)" if quantity == "transitions"
                   else (r"$E_i - E_0$" if relative else r"$E_i$"))
     ax.set_title(title or getattr(result, "title", None) or "spectrum vs " + sweep)
 
-    Y0 = compute({n: rng[n][2] for n in others})
-    curves = [ax.plot(xs, Y0[:, i], color=f"C{i % 10}", lw=1.8, label=curve_labels[i])[0]
-              for i in range(n_curves)]
+    Y0, W0 = compute({n: rng[n][2] for n in others})
+
+    def _segments(y):
+        pts = np.column_stack([xs, y]).reshape(-1, 1, 2)
+        return np.concatenate([pts[:-1], pts[1:]], axis=1)
+
+    if drive:                                   # colour by transition strength
+        wmax = float(np.nanmax(W0)) if np.isfinite(W0).any() else 1.0
+        norm = plt.Normalize(0.0, wmax or 1.0)
+        collections = []
+        for i in range(n_curves):
+            lc = LineCollection(_segments(Y0[:, i]), cmap=cmap, norm=norm, lw=2.2)
+            lc.set_array(W0[:-1, i])
+            ax.add_collection(lc)
+            collections.append(lc)
+        cbar = fig.colorbar(collections[0], ax=ax, pad=0.02)
+        cbar.set_label(r"$|\langle i|\,%s\,|j\rangle|$" % sp.latex(sp.Symbol(drive)))
+        curves = None
+    else:
+        curves = [ax.plot(xs, Y0[:, i], color=f"C{i % 10}", lw=1.8,
+                          label=curve_labels[i])[0] for i in range(n_curves)]
+        ax.legend(loc="upper right", fontsize=8, ncol=2)
     marker = ax.axvline(init, color="0.4", ls="--", lw=1)
     ax.set_xlim(lo, hi)
-    ax.legend(loc="upper right", fontsize=8, ncol=2)
 
     sliders = {}
-    # a slider for the sweep value (moves the marker) plus one per other param
-    sax0 = fig.add_axes([0.12, 0.06 + 0.05 * n_sl, 0.78, 0.03])
-    sliders[sweep] = Slider(sax0, f"${sp.latex(sp.Symbol(sweep))}$", lo, hi, valinit=init)
+    sax0 = fig.add_axes([0.12, 0.06 + 0.05 * n_sl, 0.74, 0.03])
+    sliders[sweep] = Slider(sax0, _pretty_label(sweep), lo, hi, valinit=init)
     for k, name in enumerate(others):
         a, b, ini = rng[name]
-        sax = fig.add_axes([0.12, 0.06 + 0.05 * k, 0.78, 0.03])
-        sliders[name] = Slider(sax, f"${sp.latex(sp.Symbol(name))}$", a, b, valinit=ini)
+        sax = fig.add_axes([0.12, 0.06 + 0.05 * k, 0.74, 0.03])
+        sliders[name] = Slider(sax, _pretty_label(name), a, b, valinit=ini)
 
     def _rescale(Y):
         finite = Y[np.isfinite(Y)]
@@ -283,16 +345,23 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
             ax.set_ylim(float(finite.min()) - pad, float(finite.max()) + pad)
 
     def update(_=None):
-        Y = compute({n: sliders[n].val for n in others})
-        for i, ln in enumerate(curves):
-            ln.set_ydata(Y[:, i])
+        Y, W = compute({n: sliders[n].val for n in others})
+        if drive:
+            wmax = float(np.nanmax(W)) if np.isfinite(W).any() else 1.0
+            for i, lc in enumerate(collections):
+                lc.set_segments(_segments(Y[:, i]))
+                lc.set_array(W[:-1, i])
+                lc.set_norm(plt.Normalize(0.0, wmax or 1.0))
+        else:
+            for i, ln in enumerate(curves):
+                ln.set_ydata(Y[:, i])
         marker.set_xdata([sliders[sweep].val, sliders[sweep].val])
         _rescale(Y)
         fig.canvas.draw_idle()
 
     for n, s in sliders.items():
-        # moving the sweep slider only repositions the marker (cheap); the other
-        # sliders trigger a full recompute of the curves
+        # the sweep slider only repositions the marker (cheap); the others
+        # trigger a full recompute of the curves
         s.on_changed((lambda _=None: (marker.set_xdata([sliders[sweep].val] * 2),
                                        fig.canvas.draw_idle())) if n == sweep else update)
     _rescale(Y0)

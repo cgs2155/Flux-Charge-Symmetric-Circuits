@@ -691,6 +691,34 @@ def test_interactive_bias_sliders_and_vs_param():
     assert np.nanmax(curves[0].get_ydata()) - np.nanmin(curves[0].get_ydata()) > 1e-3
 
 
+def test_interactive_transition_strength_weighting():
+    """weight_by colours each curve by a transition matrix element |<i|op|j>|.
+    The transmon charge matrix element grows with E_J/E_C, so the f01 strength
+    is non-trivial and varies over an E_J sweep.  Labels render the bias physics
+    names cleanly."""
+    _require_numpy()
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.collections import LineCollection
+    from fluxcharge import library
+    from fluxcharge.interactive import spectrum_vs_param, _pretty_label, _default_drive
+
+    assert _pretty_label("E_J") == "$E_{J}$"
+    assert "Phi" in _pretty_label("phi_ext_f1") and "ext" in _pretty_label("phi_ext_f1")
+    assert "n_{g}" in _pretty_label("n_g_v2")
+
+    tr = library.transmon().hamiltonian(ground="v1")
+    assert _default_drive(tr) == "q_f1"          # natural charge drive
+    fig, _ = spectrum_vs_param(tr, sweep="E_J", quantity="transitions", weight_by=True,
+                               ranges={"E_J": (1, 30, 12), "C": (0.3, 2, 1)},
+                               n_levels=3, cutoffs={"q_f1": 61}, npoints=15, show=False)
+    lcs = [c for c in fig.axes[0].collections if isinstance(c, LineCollection)]
+    assert len(lcs) == 2                          # f01, f12 as coloured collections
+    f01 = lcs[0].get_array()
+    assert np.nanmax(f01) - np.nanmin(f01) > 1e-2 # strength varies over the sweep
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with
