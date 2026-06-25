@@ -1433,10 +1433,11 @@ def main():  # pragma: no cover - interactive
             ecanvas.get_tk_widget().pack(fill="both", expand=True, side="top")
             try:
                 # spectrum vs the external bias (x-axis), live sliders for the
-                # circuit parameters; coarse grid + no colouring -> responsive
+                # circuit parameters only (the swept variable is the x-axis, so
+                # no redundant marker slider); coarse grid + no colouring -> fast
                 spectrum_vs_param(res, sweep=sweep, ranges=ranges, n_levels=n,
-                                  cutoffs=cutoffs, quantity=quantity,
-                                  weight_by=False, npoints=21, fig=efig, show=False)
+                                  cutoffs=cutoffs, quantity=quantity, weight_by=False,
+                                  npoints=21, sweep_slider=False, fig=efig, show=False)
             except Exception as exc:
                 busy_off(); win.destroy(); report_error(exc); return
             busy_off()

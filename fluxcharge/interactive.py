@@ -290,6 +290,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
                       *, n_levels: int = 6, cutoffs: Optional[Dict] = None,
                       quantity: str = "levels", npoints: int = 41,
                       relative: bool = True, weight_by=None, cmap: str = "viridis",
+                      sweep_slider: bool = True,
                       title: Optional[str] = None, fig=None, show: bool = True):
     """Plot the spectrum as **curves vs one swept parameter**, with sliders for
     the rest (the ``scqubits.plot_evals_vs_paramvals`` pattern, made live).
@@ -392,12 +393,16 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
         curves = [ax.plot(xs, Y0[:, i], color=f"C{i % 10}", lw=1.8,
                           label=curve_labels[i])[0] for i in range(n_curves)]
         ax.legend(loc="upper right", fontsize=8, ncol=2)
-    marker = ax.axvline(init, color="0.4", ls="--", lw=1)
+    # an optional dashed marker + slider for the swept variable.  In the bias
+    # sweep it is redundant (the swept variable *is* the x-axis), so callers can
+    # drop it and keep only the circuit-parameter sliders.
+    marker = ax.axvline(init, color="0.4", ls="--", lw=1) if sweep_slider else None
     ax.set_xlim(lo, hi)
 
     sliders = {}
-    sax0 = fig.add_axes([0.12, 0.06 + 0.05 * n_sl, 0.74, 0.03])
-    sliders[sweep] = Slider(sax0, _pretty_label(sweep), lo, hi, valinit=init)
+    if sweep_slider:
+        sax0 = fig.add_axes([0.12, 0.06 + 0.05 * n_sl, 0.74, 0.03])
+        sliders[sweep] = Slider(sax0, _pretty_label(sweep), lo, hi, valinit=init)
     for k, name in enumerate(others):
         a, b, ini = rng[name]
         sax = fig.add_axes([0.12, 0.06 + 0.05 * k, 0.74, 0.03])
@@ -446,9 +451,9 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
         fig.canvas.draw_idle()
 
     for n, s in sliders.items():
-        # the sweep slider only repositions the marker (cheap, immediate); the
-        # others schedule a debounced recompute of the curves
-        s.on_changed(_move_marker if n == sweep else _schedule)
+        # the sweep slider (if shown) only repositions the marker (cheap,
+        # immediate); the others schedule a debounced recompute of the curves
+        s.on_changed(_move_marker if (sweep_slider and n == sweep) else _schedule)
     _rescale(Y0)
 
     if show and own_fig:
