@@ -1315,10 +1315,12 @@ def main():  # pragma: no cover - interactive
             ecanvas = FigureCanvasTkAgg(efig, master=win)
             ecanvas.get_tk_widget().pack(fill="both", expand=True, side="top")
             try:
-                # draw into our Tk-bound figure so the sliders are live in-app
+                # draw into our Tk-bound figure so the sliders are live in-app.
+                # plain coloured curves + a coarse grid keep each recompute cheap
+                # so the sliders stay responsive (no per-point matrix elements).
                 spectrum_vs_param(res, sweep=sweep, ranges=ranges, n_levels=n,
                                   cutoffs=cutoffs, quantity=quantity,
-                                  weight_by=True, fig=efig, show=False)
+                                  weight_by=False, npoints=21, fig=efig, show=False)
             except Exception as exc:
                 busy_off(); win.destroy(); report_error(exc); return
             busy_off()
