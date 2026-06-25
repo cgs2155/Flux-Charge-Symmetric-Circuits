@@ -573,46 +573,20 @@ def main():  # pragma: no cover - interactive
     # ---- body ----
     body = ttk.Frame(root, padding=12)
     body.pack(fill="both", expand=True)
-
-    # The left column's stacked cards can be taller than the window (especially on
-    # laptop screens), so make it scrollable -- otherwise pack silently clips the
-    # bottom cards (the sweep / Sweep / Live controls) off the screen edge.  All
-    # the cards still pack into `left`; `left` is now the canvas's inner frame.
-    left_outer = ttk.Frame(body, width=486)
-    left_outer.pack(side="left", fill="y")
-    left_outer.pack_propagate(False)
-    left_canvas = tk.Canvas(left_outer, width=470, highlightthickness=0,
-                            bg=SURFACE, takefocus=0)
-    left_vsb = ttk.Scrollbar(left_outer, orient="vertical", command=left_canvas.yview)
-    left_canvas.configure(yscrollcommand=left_vsb.set)
-    left_vsb.pack(side="right", fill="y")
-    left_canvas.pack(side="left", fill="both", expand=True)
-    left = ttk.Frame(left_canvas)
-    _left_win = left_canvas.create_window((0, 0), window=left, anchor="nw")
-    left.bind("<Configure>",
-              lambda _e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
-    left_canvas.bind("<Configure>",
-                     lambda e: left_canvas.itemconfigure(_left_win, width=e.width))
-
-    def _left_wheel(event):
-        # only scroll the left column when the pointer is over it (so the report
-        # box on the right keeps its own wheel scrolling)
-        w = event.widget
-        if str(w).startswith(str(left_outer)):
-            step = -1 if event.delta > 0 else 1
-            left_canvas.yview_scroll(step, "units")
-    root.bind_all("<MouseWheel>", _left_wheel)
-    # X11 sends wheel as Button-4/5
-    root.bind_all("<Button-4>", lambda e: _left_wheel(type("E", (), {"widget": e.widget, "delta": 120})))
-    root.bind_all("<Button-5>", lambda e: _left_wheel(type("E", (), {"widget": e.widget, "delta": -120})))
-
+    # left = circuit input (netlist + builders); right = outputs (figure on top,
+    # and a bottom row sharing Numerical diagonalization with the details report,
+    # so the controls use the wide lower real estate instead of overflowing the
+    # narrow left column).
+    left = ttk.Frame(body, width=470)
+    left.pack(side="left", fill="y")
+    left.pack_propagate(False)
     right = ttk.Frame(body)
     right.pack(side="left", fill="both", expand=True, padx=(12, 0))
 
     # ---- netlist card ----
     nl_card = card(left, "Netlist")
-    nl_card.pack(fill="x")
-    netlist = tk.Text(nl_card, height=10, font=(MONO, 10), wrap="none")
+    nl_card.pack(fill="both", expand=True)
+    netlist = tk.Text(nl_card, height=12, font=(MONO, 10), wrap="none")
     style_text(netlist)
     netlist.pack(fill="both", expand=True)
     netlist.insert("1.0", EXAMPLE)
@@ -713,44 +687,72 @@ def main():  # pragma: no cover - interactive
                           command=lambda: dualize())
     dual_btn.pack(fill="x", pady=(6, 0))
 
-    # ---- numerics card ----
-    num_card = card(left, "Numerical diagonalization")
-    num_card.pack(fill="x", pady=(10, 0))
+    # ---- right: outputs (figure on top; a bottom row shares the numerical
+    # diagonalization controls with the details report, using the wide lower
+    # real estate instead of overflowing the narrow left column) ----
+    fig = Figure(figsize=(6.8, 5.4))
+    fig.patch.set_facecolor(SURFACE)
+    ax_sch = fig.add_axes([0.03, 0.50, 0.94, 0.45]); ax_sch.axis("off")
+    ax_h = fig.add_axes([0.03, 0.27, 0.94, 0.20]); ax_h.axis("off")
+    ax_comm = fig.add_axes([0.03, 0.03, 0.94, 0.21]); ax_comm.axis("off")
+    ax_sch.text(0.5, 0.5, "press Generate", ha="center", va="center", color="#aab2bd")
+    right.rowconfigure(0, weight=1)
+    right.rowconfigure(1, weight=0, minsize=230)
+    right.columnconfigure(0, weight=1)
+
+    canvas_border = tk.Frame(right, bg=BORDER)
+    canvas_border.grid(row=0, column=0, sticky="nsew")
+    canvas = FigureCanvasTkAgg(fig, master=canvas_border)
+    canvas.get_tk_widget().pack(fill="both", expand=True, padx=1, pady=1)
+
+    # bottom row: [ numerical diagonalization | details ] side by side
+    bottom = ttk.Frame(right)
+    bottom.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+    bottom.rowconfigure(0, weight=1)
+    bottom.columnconfigure(0, weight=0, minsize=460)   # controls (natural width)
+    bottom.columnconfigure(1, weight=1)                # details (expand)
+
+    # ---- numerics card (bottom-left) ----
+    num_card = card(bottom, "Numerical diagonalization")
+    num_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
     num_card.columnconfigure(1, weight=1)
-    ttk.Label(num_card, text="params:  E_J=15, C=1",
-              style="Muted.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
+    num_card.columnconfigure(3, weight=1)
+    ttk.Label(num_card, text="params:", style="Muted.TLabel").grid(
+        row=0, column=0, sticky="w")
     params_entry = ttk.Entry(num_card)
-    params_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 4))
+    params_entry.grid(row=0, column=1, columnspan=3, sticky="ew", padx=(4, 4))
     params_entry.insert(0, "E_J=15, C=1, G=0.5")
-    ttk.Label(num_card, text="levels:", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 0))
-    levels_entry = ttk.Entry(num_card, width=5)
-    levels_entry.grid(row=2, column=1, sticky="w", pady=(4, 0))
-    levels_entry.insert(0, "6")
     diag_btn = ttk.Button(num_card, text=f"Diagonalize  ({_MOD}K)",
                           command=lambda: diagonalize())
-    diag_btn.grid(row=1, column=2, rowspan=2, sticky="ns", padx=(4, 0))
+    diag_btn.grid(row=0, column=4, sticky="ew", padx=(4, 0))
+
+    ttk.Label(num_card, text="levels:", style="Muted.TLabel").grid(
+        row=1, column=0, sticky="w", pady=(4, 0))
+    levels_entry = ttk.Entry(num_card, width=5)
+    levels_entry.grid(row=1, column=1, sticky="w", pady=(4, 0))
+    levels_entry.insert(0, "6")
+    ttk.Label(num_card, text="wavefn:", style="Muted.TLabel").grid(
+        row=1, column=2, sticky="e", pady=(4, 0))
+    wf_rep = tk.StringVar(value="auto")
+    ttk.OptionMenu(num_card, wf_rep, "auto", "auto", "flux", "charge").grid(
+        row=1, column=3, sticky="w", pady=(4, 0))
 
     units_var = tk.BooleanVar(value=False)
     ttk.Checkbutton(num_card, text="physical units (fF / nH / GHz → spectrum in GHz)",
-                    variable=units_var).grid(row=3, column=0, columnspan=3,
+                    variable=units_var).grid(row=2, column=0, columnspan=5,
                                              sticky="w", pady=(4, 0))
 
     ttk.Label(num_card, text="cutoffs:", style="Muted.TLabel").grid(
-        row=4, column=0, sticky="w", pady=(4, 0))
+        row=3, column=0, sticky="w", pady=(4, 0))
     cutoffs_entry = ttk.Entry(num_card)
-    cutoffs_entry.grid(row=4, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+    cutoffs_entry.grid(row=3, column=1, columnspan=4, sticky="ew", pady=(4, 0))
     cutoffs_entry.insert(0, "")     # e.g. "phi_v2=120, q_f1=61"; blank = defaults
-    ttk.Label(num_card, text="wavefunctions:", style="Muted.TLabel").grid(
-        row=5, column=0, sticky="w", pady=(4, 0))
-    wf_rep = tk.StringVar(value="auto")
-    ttk.OptionMenu(num_card, wf_rep, "auto", "auto", "flux", "charge").grid(
-        row=5, column=1, sticky="w", pady=(4, 0))
 
     ttk.Label(num_card, text="sweep:  parameter · from · to · points",
-              style="Muted.TLabel").grid(row=6, column=0, columnspan=3,
+              style="Muted.TLabel").grid(row=4, column=0, columnspan=5,
                                          sticky="w", pady=(8, 2))
     sweep_wrap = ttk.Frame(num_card)
-    sweep_wrap.grid(row=7, column=0, columnspan=3, sticky="ew")
+    sweep_wrap.grid(row=5, column=0, columnspan=5, sticky="ew")
     sweep_param = ttk.Entry(sweep_wrap, width=9); sweep_param.pack(side="left", padx=1)
     sweep_param.insert(0, "E_J")
     sweep_from = ttk.Entry(sweep_wrap, width=5); sweep_from.pack(side="left", padx=1)
@@ -762,32 +764,14 @@ def main():  # pragma: no cover - interactive
     sweep_quantity = tk.StringVar(value="levels")
     ttk.OptionMenu(sweep_wrap, sweep_quantity, "levels",
                    "levels", "transitions", "anharmonicity").pack(side="left", padx=2)
-    # buttons on their own row so neither is clipped in the narrow left panel
-    sweep_btns = ttk.Frame(num_card)
-    sweep_btns.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-    ttk.Button(sweep_btns, text="Sweep (static plot)",
-               command=lambda: sweep_plot()).pack(side="left", padx=(0, 4))
-    ttk.Button(sweep_btns, text="Live (interactive sliders)",
-               command=lambda: live_explore()).pack(side="left")
+    ttk.Button(sweep_wrap, text="Sweep", command=lambda: sweep_plot()).pack(
+        side="left", padx=(6, 2))
+    ttk.Button(sweep_wrap, text="Live", command=lambda: live_explore()).pack(
+        side="left")
 
-    # ---- right: outputs ----
-    fig = Figure(figsize=(6.8, 5.4))
-    fig.patch.set_facecolor(SURFACE)
-    ax_sch = fig.add_axes([0.03, 0.50, 0.94, 0.45]); ax_sch.axis("off")
-    ax_h = fig.add_axes([0.03, 0.27, 0.94, 0.20]); ax_h.axis("off")
-    ax_comm = fig.add_axes([0.03, 0.03, 0.94, 0.21]); ax_comm.axis("off")
-    ax_sch.text(0.5, 0.5, "press Generate", ha="center", va="center", color="#aab2bd")
-    right.rowconfigure(0, weight=1)
-    right.rowconfigure(1, weight=0, minsize=150)
-    right.columnconfigure(0, weight=1)
-
-    canvas_border = tk.Frame(right, bg=BORDER)
-    canvas_border.grid(row=0, column=0, sticky="nsew")
-    canvas = FigureCanvasTkAgg(fig, master=canvas_border)
-    canvas.get_tk_widget().pack(fill="both", expand=True, padx=1, pady=1)
-
-    rep_card = card(right, "details")
-    rep_card.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+    # ---- details report (bottom-right) ----
+    rep_card = card(bottom, "details")
+    rep_card.grid(row=0, column=1, sticky="nsew")
     rep_vsb = ttk.Scrollbar(rep_card, orient="vertical")
     rep_vsb.pack(side="right", fill="y")
     report = tk.Text(rep_card, height=8, font=(MONO, 9), wrap="none", yscrollcommand=rep_vsb.set)

@@ -378,7 +378,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
             pad = 0.05 * (finite.max() - finite.min() + 1e-9)
             ax.set_ylim(float(finite.min()) - pad, float(finite.max()) + pad)
 
-    def update(_=None):
+    def _recompute():
         Y, W = compute({n: sliders[n].val for n in others})
         if drive:
             wmax = float(np.nanmax(W)) if np.isfinite(W).any() else 1.0
@@ -389,15 +389,35 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
         else:
             for i, ln in enumerate(curves):
                 ln.set_ydata(Y[:, i])
-        marker.set_xdata([sliders[sweep].val, sliders[sweep].val])
         _rescale(Y)
         fig.canvas.draw_idle()
 
+    # Debounce the heavy recompute: a dragged slider fires on_changed for every
+    # pixel of motion, and each recompute is a whole parameter sweep (npoints
+    # diagonalizations).  Running them synchronously queues a backlog and the UI
+    # feels frozen.  Instead, coalesce a burst of slider events into a single
+    # recompute ~140 ms after motion settles (one timer, restarted each event).
+    _timer = {"t": None}
+
+    def _schedule(_=None):
+        try:
+            if _timer["t"] is None:
+                _timer["t"] = fig.canvas.new_timer(interval=140)
+                _timer["t"].single_shot = True
+                _timer["t"].add_callback(_recompute)
+            _timer["t"].stop()
+            _timer["t"].start()
+        except Exception:
+            _recompute()                       # backend without timers: synchronous
+
+    def _move_marker(_=None):
+        marker.set_xdata([sliders[sweep].val, sliders[sweep].val])
+        fig.canvas.draw_idle()
+
     for n, s in sliders.items():
-        # the sweep slider only repositions the marker (cheap); the others
-        # trigger a full recompute of the curves
-        s.on_changed((lambda _=None: (marker.set_xdata([sliders[sweep].val] * 2),
-                                       fig.canvas.draw_idle())) if n == sweep else update)
+        # the sweep slider only repositions the marker (cheap, immediate); the
+        # others schedule a debounced recompute of the curves
+        s.on_changed(_move_marker if n == sweep else _schedule)
     _rescale(Y0)
 
     if show and own_fig:
