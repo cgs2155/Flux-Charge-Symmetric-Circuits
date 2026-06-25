@@ -328,50 +328,51 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
         na, nb = sorted(pair)
         base = pos[nb] - pos[na]
         L = float(np.linalg.norm(base)) or scale
-        base_nhat = (np.array([-base[1], base[0]]) / L) if L else np.array([0.0, 1.0])
+        uhat = (base / L) if L else np.array([1.0, 0.0])
+        base_nhat = np.array([-uhat[1], uhat[0]])
 
-        # parallel-sibling offset: a small fixed separation (tied to the element
-        # size, not the edge length) so two elements on the same node pair sit as
-        # a tight pair rather than swinging far out on a long edge
-        sib = min(0.42 * L, 0.55 * unit)
+        # outward perpendicular direction for this edge (away from centroid),
+        # so parallel siblings bow to the outside of the layout, not inward
+        mid = 0.5 * (pos[na] + pos[nb])
+        outward = mid - centroid
+        out_sign = 1.0 if float(np.dot(outward, base_nhat)) >= 0 else -1.0
 
-        # choose a signed perpendicular offset for each parallel edge
+        # decide a perpendicular offset and a drawing style per element:
+        #   "chord" -- drawn full length along the edge (the lone/main element)
+        #   "fan"   -- isolated bundle (e.g. an LC loop): symmetric arcs
+        #   "rung"  -- a parallel sibling: a SHORT element near the midpoint,
+        #              offset outward and tapped off the chord, so two elements
+        #              on one node pair read as a tight ladder rather than a big
+        #              full-length parallelogram swinging across the figure
+        placements = []   # (edge_key, off, style)
         if m == 1:
-            offs = [0.0]
+            placements.append((elist[0], 0.0, "chord"))
         elif n_nodes <= 2:
-            # an isolated multi-edge bundle (e.g. an LC loop): fan symmetrically
-            offs = list(np.linspace(-1.0, 1.0, m) * sib)
+            sib = min(0.42 * L, 0.55 * unit)
+            for e, off in zip(elist, np.linspace(-1.0, 1.0, m) * sib):
+                placements.append((e, float(off), "fan"))
         else:
-            # planar rule: outer-face edges bow outward (away from centroid),
-            # interior siblings stay on the straight chord
-            mid = 0.5 * (pos[na] + pos[nb])
-            outward = mid - centroid
-            sign = 1.0 if float(np.dot(outward, base_nhat)) >= 0 else -1.0
-            outer_list = [e for (uu, vv, kk) in elist
-                          for e in [G.get_edge_data(uu, vv, kk)["name"]]
-                          if e in outer_edges]
-            offs = []
-            n_out = 0
-            for (uu, vv, kk) in elist:
-                nm = G.get_edge_data(uu, vv, kk)["name"]
-                if nm in outer_edges:
-                    n_out += 1
-                    offs.append(sign * 0.42 * L * n_out)   # stack outward
-                else:
-                    offs.append(0.0)                        # straight chord
-            # if none flagged outer (no face info), fall back to a tight fan
-            if not outer_list:
-                offs = list(np.linspace(-1.0, 1.0, m) * sib)
+            rung = min(0.5 * unit, 0.3 * L)
+            placements.append((elist[0], 0.0, "chord"))
+            for i, e in enumerate(elist[1:], start=1):
+                placements.append((e, out_sign * rung * i, "rung"))
 
-        for (u, v, k), off in zip(elist, offs):
+        for (u, v, k), off, style in placements:
             data = G.get_edge_data(u, v, k)
             etype = data["element_type"]
             P, Q = pos[u], pos[v]
             if np.linalg.norm(Q - P) == 0:
                 continue
-            A = P + base_nhat * off
-            B = Q + base_nhat * off
             param = data.get("parameter")
+
+            if style == "rung":
+                half = min(0.32 * L, 0.7 * unit)
+                Sa, Sb = mid - uhat * half, mid + uhat * half
+                A = Sa + base_nhat * off
+                B = Sb + base_nhat * off
+            else:
+                A = P + base_nhat * off
+                B = Q + base_nhat * off
 
             # orient the half-gyrator crescent so it bulges toward its partner
             # (the grey coupling line).  The crescent bulges 90 deg CCW from the
@@ -388,13 +389,18 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
                     if float(np.dot(n_plus, d_bulge)) < 0:
                         A, B = B, A
 
-            if off != 0:
-                d += elm.Line().at(tuple(P)).to(tuple(A))
-            _place(etype, A, B, param, data["name"])
+            if style == "rung":
+                d += elm.Line().at(tuple(Sa)).to(tuple(A))
+                _place(etype, A, B, param, data["name"])
+                d += elm.Line().at(tuple(B)).to(tuple(Sb))
+            else:
+                if off != 0:
+                    d += elm.Line().at(tuple(P)).to(tuple(A))
+                _place(etype, A, B, param, data["name"])
+                if off != 0:
+                    d += elm.Line().at(tuple(B)).to(tuple(Q))
             if etype == "Gyrator":
                 gyr_port_centres[data["name"]] = 0.5 * (A + B)
-            if off != 0:
-                d += elm.Line().at(tuple(B)).to(tuple(Q))
             d += elm.Dot().at(tuple(P))
             d += elm.Dot().at(tuple(Q))
 

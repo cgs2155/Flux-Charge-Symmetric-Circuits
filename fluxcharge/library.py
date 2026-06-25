@@ -98,7 +98,8 @@ def zero_pi() -> Circuit:
     integer coefficients) and two *extended*.  Because the compact coordinate is
     aligned with the frame, the spectrum diagonalizes cleanly (no hidden-compact
     / ``cos(theta/2)`` lattice obstruction).  Ships with a default schematic
-    layout (an equilateral triangle ``v1, v2, v3`` with ``v4`` at the centre).
+    layout (an equilateral triangle ``v2, v3, v4`` with the inductor hub ``v1``
+    at the centre, so both junction edges sit on the outer triangle).
     """
     c = Circuit()
     c.title = "Zero-pi"
@@ -111,9 +112,11 @@ def zero_pi() -> Circuit:
     c.add_capacitor("c1", "v1", "v3", C="C")        # cross-capacitor
     c.add_capacitor("c2", "v2", "v4", C="C")        # cross-capacitor
     c.ground = "v1"
-    # preferred schematic layout: triangle (v1, v2, v3) with v4 at the centre
-    c._positions = {"v1": (-5.16, -3.0), "v2": (0.0, 6.0),
-                    "v3": (5.16, -3.0), "v4": (0.0, 0.0)}
+    # preferred schematic layout: outer triangle (v2, v3, v4) with the inductor
+    # hub v1 at the centre, so both junction edges (v2-v3, v3-v4) lie on the
+    # outer triangle where their junction caps can bow cleanly outward
+    c._positions = {"v3": (0.0, 6.0), "v2": (-5.16, -3.0),
+                    "v4": (5.16, -3.0), "v1": (0.0, 0.0)}
     return c
 
 
