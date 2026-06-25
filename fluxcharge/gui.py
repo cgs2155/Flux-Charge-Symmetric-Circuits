@@ -573,16 +573,46 @@ def main():  # pragma: no cover - interactive
     # ---- body ----
     body = ttk.Frame(root, padding=12)
     body.pack(fill="both", expand=True)
-    left = ttk.Frame(body, width=470)
-    left.pack(side="left", fill="y")
-    left.pack_propagate(False)
+
+    # The left column's stacked cards can be taller than the window (especially on
+    # laptop screens), so make it scrollable -- otherwise pack silently clips the
+    # bottom cards (the sweep / Sweep / Live controls) off the screen edge.  All
+    # the cards still pack into `left`; `left` is now the canvas's inner frame.
+    left_outer = ttk.Frame(body, width=486)
+    left_outer.pack(side="left", fill="y")
+    left_outer.pack_propagate(False)
+    left_canvas = tk.Canvas(left_outer, width=470, highlightthickness=0,
+                            bg=SURFACE, takefocus=0)
+    left_vsb = ttk.Scrollbar(left_outer, orient="vertical", command=left_canvas.yview)
+    left_canvas.configure(yscrollcommand=left_vsb.set)
+    left_vsb.pack(side="right", fill="y")
+    left_canvas.pack(side="left", fill="both", expand=True)
+    left = ttk.Frame(left_canvas)
+    _left_win = left_canvas.create_window((0, 0), window=left, anchor="nw")
+    left.bind("<Configure>",
+              lambda _e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
+    left_canvas.bind("<Configure>",
+                     lambda e: left_canvas.itemconfigure(_left_win, width=e.width))
+
+    def _left_wheel(event):
+        # only scroll the left column when the pointer is over it (so the report
+        # box on the right keeps its own wheel scrolling)
+        w = event.widget
+        if str(w).startswith(str(left_outer)):
+            step = -1 if event.delta > 0 else 1
+            left_canvas.yview_scroll(step, "units")
+    root.bind_all("<MouseWheel>", _left_wheel)
+    # X11 sends wheel as Button-4/5
+    root.bind_all("<Button-4>", lambda e: _left_wheel(type("E", (), {"widget": e.widget, "delta": 120})))
+    root.bind_all("<Button-5>", lambda e: _left_wheel(type("E", (), {"widget": e.widget, "delta": -120})))
+
     right = ttk.Frame(body)
     right.pack(side="left", fill="both", expand=True, padx=(12, 0))
 
     # ---- netlist card ----
     nl_card = card(left, "Netlist")
-    nl_card.pack(fill="both", expand=True)
-    netlist = tk.Text(nl_card, height=16, font=(MONO, 10), wrap="none")
+    nl_card.pack(fill="x")
+    netlist = tk.Text(nl_card, height=10, font=(MONO, 10), wrap="none")
     style_text(netlist)
     netlist.pack(fill="both", expand=True)
     netlist.insert("1.0", EXAMPLE)
