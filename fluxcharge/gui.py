@@ -732,10 +732,13 @@ def main():  # pragma: no cover - interactive
     sweep_quantity = tk.StringVar(value="levels")
     ttk.OptionMenu(sweep_wrap, sweep_quantity, "levels",
                    "levels", "transitions", "anharmonicity").pack(side="left", padx=2)
-    ttk.Button(sweep_wrap, text="Sweep", command=lambda: sweep_plot()).pack(
-        side="left", padx=(4, 0))
-    ttk.Button(sweep_wrap, text="Live", command=lambda: live_explore()).pack(
-        side="left", padx=(2, 0))
+    # buttons on their own row so neither is clipped in the narrow left panel
+    sweep_btns = ttk.Frame(num_card)
+    sweep_btns.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+    ttk.Button(sweep_btns, text="Sweep (static plot)",
+               command=lambda: sweep_plot()).pack(side="left", padx=(0, 4))
+    ttk.Button(sweep_btns, text="Live (interactive sliders)",
+               command=lambda: live_explore()).pack(side="left")
 
     # ---- right: outputs ----
     fig = Figure(figsize=(6.8, 5.4))
