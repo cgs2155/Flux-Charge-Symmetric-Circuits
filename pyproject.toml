@@ -42,6 +42,10 @@ dynamics = ["qutip>=4.7"]
 dev = ["pytest>=7.0"]
 package = ["pyinstaller>=6.0"]
 
+[project.urls]
+Homepage = "https://github.com/cgs2155/Flux-Charge-Symmetric-Circuits"
+Repository = "https://github.com/cgs2155/Flux-Charge-Symmetric-Circuits"
+
 [project.scripts]
 fluxcharge = "fluxcharge.__main__:main"
 fluxcharge-gui = "fluxcharge.gui:main"
