@@ -34,6 +34,13 @@ wrong or incomplete Hamiltonian.
   `f = −Ω/2`; completeness = f non-degenerate. `ReductionResult.canonical()`,
   `.commutators()` (= −iħ/coeff per pair; calibrated so transmon gives [φ,q]=iħ),
   `.compact_coordinates()` (coords inside a cos → may live on S¹), `.report()`.
+  Constraint elimination prefers a *polynomial* (linear) target over one buried
+  in a JJ/QPS cosine, so a working JJ circuit and its QPS dual reduce
+  symmetrically (don't pick a transcendental target → no `atan(…√…)` monster).
+  When a gyrator couples a *nonlinear* element into a circular/transcendental
+  self-consistency `x=f(sin x)` (ill-posed or non-reciprocal-nonlinear), it
+  raises **`ReductionError`** promptly instead of hanging on nested `sin(sin(…))`
+  or crashing out of `sp.solve` — the honest guard, like `CompactLatticeError`.
 - `netlist.py` — `parse_netlist`/`from_netlist` (text format) and `to_netlist`
   (serialize back). Format: `TYPE name n1 n2 [val]` (C/L/J/QPS), `gyrator e1 a b
   e2 a b [ratio]`, `loop name +e1 -e2 ...`, `ground node`, `open loop`, `title`.

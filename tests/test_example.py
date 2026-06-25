@@ -607,6 +607,44 @@ def test_gyrator_terminated_capacitor_is_lc_mode():
     assert np.allclose(ev, np.arange(4) * omega, atol=1e-3)
 
 
+def test_gyrator_nonlinear_circular_constraint_guards():
+    """A gyrator coupling a *nonlinear* element to an element of the same kind
+    (here a phase slip across the gyrator from an inductor) is ill-posed and its
+    constraint analysis is a transcendental self-consistency ``x = f(sin x)``
+    with no closed form.  The reducer must raise ``ReductionError`` promptly
+    rather than hang building an infinitely-nested ``sin(sin(...))`` (the old
+    behaviour) -- and the partial-dual move across it stays a valid structural
+    transform whose (also ill-posed) output guards the same way.  Regression for
+    the QPS+gyrator reduction hang."""
+    import signal
+    from fluxcharge import Circuit, move_across_gyrator
+    from fluxcharge.reduction import ReductionError
+
+    A = Circuit()
+    A.add_inductor("l0", "a", "g", L="L0")
+    A.add_qps("qb", "b", "g", ES="E_S")
+    A.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G=1)
+    A.ground = "g"
+
+    def _bail(signum, frame):
+        raise AssertionError("reduction hung instead of raising ReductionError")
+    old = signal.signal(signal.SIGALRM, _bail)
+    signal.alarm(30)
+    try:
+        with pytest.raises(ReductionError):
+            A.hamiltonian(strict=False)
+        # the move itself is purely structural and still succeeds: QPS -> JJ on
+        # the far port, gyrator removed (the output is the ill-posed JJ||L)
+        B = move_across_gyrator(A, "qb")
+        assert sorted(type(e).__name__ for e in B._elements) == \
+            ["Inductor", "JosephsonJunction"]
+        with pytest.raises(ReductionError):
+            B.hamiltonian(strict=False)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
 def test_gui_mode_type_options():
     """The diagonalize dialog's data: per conjugate pair a (flux, charge,
     default_kind, warning).  Defaults are the auto classification; a warning

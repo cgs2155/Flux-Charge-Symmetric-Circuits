@@ -62,6 +62,20 @@ import sympy as sp
 from .elements import CAPACITIVE, INDUCTIVE
 
 
+class ReductionError(ValueError):
+    """The closed-form constraint reduction cannot be carried out.
+
+    Raised when the elimination of constraints does not terminate -- e.g. a
+    gyrator coupling a *nonlinear* element (Josephson junction / quantum phase
+    slip) can produce a **circular transcendental constraint**
+    ``x = f(sin x)`` that has no closed-form solution, so the coordinate cannot
+    be eliminated symbolically.  Raising here is the honest alternative to
+    returning a meaningless, infinitely-nested expression (or hanging in the
+    simplifier).  This is the gyrator + nonlinearity limitation noted in the
+    package docs; declare a loop/gauge frame in which the nonlinear coordinate
+    survives, or reduce a reciprocal equivalent of the circuit."""
+
+
 # ----------------------------------------------------------------------
 # helpers
 # ----------------------------------------------------------------------
@@ -622,13 +636,43 @@ class Reducer:
             if not cands:
                 continue
             def rank(s):
+                # never eliminate a coordinate that sits inside a transcendental
+                # (a cos/sin from a JJ or QPS energy): solving for it inverts the
+                # nonlinearity into an atan(...sqrt...) monster that then blows up
+                # in substitution.  Prefer a polynomial (ideally linear) target so
+                # the solve stays algebraic; the nonlinear coordinate survives as
+                # the periodic/charge mode.  This is what keeps the QPS dual of a
+                # working JJ circuit from hanging (the choice is otherwise
+                # charge-first, which is fine when the nonlinearity is in a flux).
+                if r.is_polynomial(s):
+                    deg = sp.Poly(r, s).degree()
+                    nonlin, degree = 0, (0 if deg == 1 else deg)
+                else:
+                    nonlin, degree = 1, 0
                 pref = prefer.index(s) if s in prefer else len(prefer)
                 is_flux = 1 if s in self.fluxes else 0
-                return (pref, is_flux, self.coords.index(s))
+                return (nonlin, degree, pref, is_flux, self.coords.index(s))
             target = sorted(cands, key=rank)[0]
-            sol = sp.solve(sp.Eq(r, 0), target, dict=True)
+            # If every candidate sits inside a transcendental (no polynomial
+            # target), the constraint mixes a coordinate linearly *and* under a
+            # cosine -- e.g. ``E_J sin(phi) + phi/L = 0`` -- which has no
+            # elementary solution.  This only happens for ill-posed / pathological
+            # gyrator+nonlinear circuits (a well-posed circuit keeps its nonlinear
+            # coordinate as a surviving mode rather than eliminating it).  sympy
+            # raises NotImplementedError here; turn it into an honest ReductionError
+            # instead of letting it crash out of the reducer.
+            try:
+                sol = sp.solve(sp.Eq(r, 0), target, dict=True)
+            except NotImplementedError as exc:
+                raise ReductionError(
+                    f"cannot eliminate the constraint {sp.Eq(r, 0)} for any "
+                    f"coordinate in closed form (it mixes {target} linearly and "
+                    "inside a Josephson/phase-slip cosine -- a transcendental "
+                    "with no elementary solution). This indicates an ill-posed or "
+                    "non-reciprocal nonlinear circuit; see the gyrator + "
+                    "nonlinearity limitation in the docs.") from exc
             if sol:
-                self.impose(target, sol[0][target], kind=kept_types[r])
+                self.impose(target, sp.expand(sol[0][target]), kind=kept_types[r])
 
         # cyclic coordinates: those that appear in the Lagrangian *only* through
         # their velocity (dL/dc == 0), hence genuinely ignorable.  Testing
@@ -721,11 +765,29 @@ class Reducer:
         coordinates only.
         """
         elim = OrderedDict((c, sp.expand(e)) for c, e in self._constraints)
+        elim_coords = set(elim)
         for _ in range(len(elim) + 1):
             updated = OrderedDict((c, sp.expand(e.subs(elim))) for c, e in elim.items())
             if updated == elim:
                 break
             elim = updated
+
+        # A constraint right-hand side that still references an eliminated
+        # coordinate after the fixed-point sweep means the eliminations are
+        # mutually circular.  When that loop passes through a transcendental
+        # (a JJ/QPS cosine coupled by a gyrator) it is a self-consistency
+        # equation x = f(sin x) with no closed form -- substituting it forever
+        # nests sin(sin(...)).  Refuse instead of returning that nested junk.
+        circular = {c: e for c, e in elim.items() if e.free_symbols & (elim_coords - {c})}
+        if circular:
+            offenders = ", ".join(f"{c} = {e}" for c, e in circular.items())
+            raise ReductionError(
+                "the constraint eliminations are mutually circular and do not "
+                "close in elementary form (a gyrator coupling a nonlinear "
+                f"element gives a transcendental self-consistency): {offenders}. "
+                "This is the gyrator + nonlinearity limitation; supply a "
+                "loop/gauge frame in which the nonlinear coordinate survives, or "
+                "reduce a reciprocal equivalent.")
         return elim
 
     def _reduced_lagrangian(self) -> sp.Expr:
