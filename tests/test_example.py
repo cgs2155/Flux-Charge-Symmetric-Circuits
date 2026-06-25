@@ -578,6 +578,51 @@ def test_move_across_gyrator_preserves_well_posedness_JJ_to_QPS():
     assert np.allclose(ea, eb, atol=1e-3)
 
 
+def test_move_across_gyrator_carries_offset_charge():
+    """External-bias carry-over across the partial-dual move.  An offset (gate)
+    charge is a node-local property: when its node survives the move with
+    capacitive edges it carries over directly, and the spectrum (a point
+    transformation) is preserved.  A bias the move would have to *dualize through*
+    the gyrator -- an offset charge on the emptied island, or any loop-keyed flux
+    bias against the re-inferred output -- is refused (honest, not silently
+    dropped) rather than mis-placed."""
+    _require_numpy()
+    import numpy as np
+    import pytest as _pytest
+    from fluxcharge import Circuit, move_across_gyrator
+
+    def build():
+        A = Circuit()
+        A.add_capacitor("c0", "a", "g", C="C0")
+        A.add_capacitor("cb", "b", "g", C="C")
+        A.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G="G")
+        A.add_loop("f1", ["+c0", "-e1"]); A.add_loop("f2", ["+cb", "-e2"])
+        A.ground = "g"
+        return A
+
+    # offset charge on the surviving far node 'a' carries; spectrum preserved
+    A = build(); A.set_offset_charge("a", "n_g")
+    B = move_across_gyrator(A, "cb")
+    assert dict(B._offset_charge) == {"a": sp.Symbol("n_g")}
+    rA = A.hamiltonian(strict=False, canonical=True)
+    rB = B.hamiltonian(strict=False, canonical=True)
+    for ng in (0.0, 0.4):
+        p = {"C0": 1.0, "C": 2.0, "G": 1.0, "n_g": ng}
+        ea = rA.eigenenergies(p, n_levels=4, cutoffs={str(b): 80 for _a, b, _c in rA.conjugate_pairs})
+        eb = rB.eigenenergies(p, n_levels=4, cutoffs={str(b): 80 for _a, b, _c in rB.conjugate_pairs})
+        assert np.allclose(ea - ea[0], eb - eb[0], atol=2e-2)
+
+    # offset charge on the moved island 'b' -> refused (its dual is a flux)
+    A = build(); A.set_offset_charge("b")
+    with _pytest.raises(NotImplementedError):
+        move_across_gyrator(A, "cb")
+
+    # any flux bias -> refused (output re-infers loops; no stable target)
+    A = build(); A.set_flux_bias("f1")
+    with _pytest.raises(NotImplementedError):
+        move_across_gyrator(A, "cb")
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with

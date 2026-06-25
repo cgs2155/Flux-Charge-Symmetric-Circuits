@@ -239,6 +239,13 @@ def move_across_gyrator(circuit: Circuit, element_edges) -> Circuit:
     (carried as ``winding = G``): spectrally valid for any ``G``, a standard
     element only at ``|G| = 1``, and for a compact charge representable only when
     ``1/G`` is an integer -- so ``|G| != 1`` *warns* rather than refusing.
+
+    External biases that the move leaves well-defined are carried over: an offset
+    (gate) charge is node-local and follows any node that survives with
+    capacitive edges.  A bias the move would have to *dualize through* the
+    gyrator -- an offset charge on the emptied island, or any loop-keyed flux
+    bias against the re-inferred output -- raises ``NotImplementedError`` instead
+    of being silently dropped (apply it on the result, or remove it first).
     """
     import warnings
 
@@ -319,4 +326,35 @@ def move_across_gyrator(circuit: Circuit, element_edges) -> Circuit:
         _add_dual_oneport(D, X, X._edge.name, nodes[i], nodes[i + 1], G)
 
     D.ground = circuit.ground if circuit.ground in D.vertices else None
+
+    # carry external biases the move leaves well-defined.  An offset (gate)
+    # charge is a property of its node, applied by splitting over that node's
+    # capacitive edges: if the node survives the move with capacitive edges, the
+    # gate charge carries over directly.  A bias whose home is consumed by the
+    # move -- an offset charge on the emptied island, or any flux bias (the
+    # output re-infers its loops, so a loop-keyed external flux has no stable
+    # target) -- would have to be *dualized through the gyrator*, a partial-dual
+    # mapping not derived here; refuse rather than silently drop or mis-place it.
+    def _has_capacitive_edge(node):
+        return any(isinstance(el, (Capacitor, QuantumPhaseSlip))
+                   and node in (el._edge.tail, el._edge.head)
+                   for el in D._elements)
+
+    for node, ng in circuit._offset_charge.items():
+        if node in D.vertices and _has_capacitive_edge(node):
+            D.set_offset_charge(node, ng)
+        else:
+            raise NotImplementedError(
+                f"offset charge on node {node!r} sits on the part of the circuit "
+                "carried across the gyrator (its capacitive anchor is gone), so "
+                "the partial dual would map it to an external flux -- a "
+                "transformation not yet derived. Remove the bias before moving, "
+                "or apply the equivalent flux on the result.")
+    if circuit._flux_bias:
+        raise NotImplementedError(
+            "flux-bias carry-over across move_across_gyrator is not supported: "
+            "the moved circuit re-infers its loops, so a loop-keyed external flux "
+            f"has no stable target (biased loops {list(circuit._flux_bias)}). "
+            "Remove the flux bias before moving, or apply it on the result after "
+            "inspecting its inferred loops.")
     return D
