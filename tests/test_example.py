@@ -623,6 +623,35 @@ def test_move_across_gyrator_carries_offset_charge():
         move_across_gyrator(A, "cb")
 
 
+def test_interactive_spectrum_slider_updates():
+    """The self-contained slider explorer builds for any circuit and recomputes
+    the spectrum when a parameter slider moves -- including the gyrator circuits
+    scqubits cannot represent.  Headless backend: no window, but the figure is
+    built and one update has run."""
+    _require_numpy()
+    import matplotlib
+    matplotlib.use("Agg")
+    from fluxcharge import library
+    from fluxcharge.interactive import spectrum_slider, parameter_symbols
+
+    r = library.transmon().hamiltonian(ground="v1")
+    assert sorted(map(str, parameter_symbols(r))) == ["C", "E_J"]
+    fig, sliders = spectrum_slider(r, {"E_J": (1, 30), "C": (0.2, 2.0)},
+                                   n_levels=4, show=False)
+    assert set(sliders) == {"E_J", "C"}
+    y_before = [ln.get_ydata()[0] for ln in fig.axes[0].lines]
+    sliders["E_J"].set_val(25.0)
+    y_after = [ln.get_ydata()[0] for ln in fig.axes[0].lines]
+    assert y_before != y_after            # the spectrum moved with the slider
+    assert y_after[0] == 0.0              # ground state is the reference
+
+    # a gyrator circuit (no scqubits equivalent) still gets a working explorer
+    rc = library.circulator().hamiltonian(ground="v1", open_loops="f4", canonical=True)
+    _, slc = spectrum_slider(rc, {"E_J": (1, 20), "G": (0.2, 0.9)},
+                             n_levels=3, cutoffs={"phi_v2": 60}, show=False)
+    assert "G" in slc
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with
