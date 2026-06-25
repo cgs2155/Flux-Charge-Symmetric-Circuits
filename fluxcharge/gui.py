@@ -734,6 +734,8 @@ def main():  # pragma: no cover - interactive
                    "levels", "transitions", "anharmonicity").pack(side="left", padx=2)
     ttk.Button(sweep_wrap, text="Sweep", command=lambda: sweep_plot()).pack(
         side="left", padx=(4, 0))
+    ttk.Button(sweep_wrap, text="Live", command=lambda: live_explore()).pack(
+        side="left", padx=(2, 0))
 
     # ---- right: outputs ----
     fig = Figure(figsize=(6.8, 5.4))
@@ -1258,6 +1260,62 @@ def main():  # pragma: no cover - interactive
                 side="bottom", anchor="e", padx=6, pady=6)
             c.draw()
             status.config(text=f"swept {param} ({len(vals)} pts)", foreground="#0a7d2c")
+
+        root.after(30, do)
+
+    def live_explore():
+        """Open an interactive spectrum window with live parameter sliders,
+        embedded in Tk (so the sliders are responsive inside the app)."""
+        from .interactive import (spectrum_vs_param, ranges_from_params,
+                                   parameter_symbols)
+        text = netlist.get("1.0", "end-1c")
+        try:
+            n = max(2, int(levels_entry.get() or 6))
+            base = _diag_params(text)
+            cutoffs = _cutoffs()
+            res = _current_result(text)
+        except Exception as exc:
+            report_error(exc)
+            return
+        quantity = sweep_quantity.get()
+        if quantity not in ("levels", "transitions"):
+            quantity = "levels"                     # 'anharmonicity' has no live view
+        names = {str(s) for s in parameter_symbols(res)}
+        if not names:
+            status.config(text="no free parameters to slide", foreground="#b26a00")
+            return
+        want = sweep_param.get().strip()
+        sweep = want if want in names else None     # else auto-pick (a bias, ...)
+        ranges = ranges_from_params(res, base)
+        busy_on("building live explorer…")
+
+        def do():
+            win = tk.Toplevel(root)
+            win.title("fluxcharge — live spectrum")
+            win.configure(bg=SURFACE)
+            efig = Figure(figsize=(7.6, 5.2))
+            efig.patch.set_facecolor("white")
+            ecanvas = FigureCanvasTkAgg(efig, master=win)
+            ecanvas.get_tk_widget().pack(fill="both", expand=True, side="top")
+            try:
+                # draw into our Tk-bound figure so the sliders are live in-app
+                spectrum_vs_param(res, sweep=sweep, ranges=ranges, n_levels=n,
+                                  cutoffs=cutoffs, quantity=quantity,
+                                  weight_by=True, fig=efig, show=False)
+            except Exception as exc:
+                busy_off(); win.destroy(); report_error(exc); return
+            busy_off()
+
+            def save_live():
+                path = filedialog.asksaveasfilename(
+                    parent=win, defaultextension=".png",
+                    filetypes=[("PNG", "*.png"), ("PDF", "*.pdf"), ("SVG", "*.svg")])
+                if path:
+                    efig.savefig(path, dpi=200, bbox_inches="tight")
+            ttk.Button(win, text="Save plot…", command=save_live).pack(
+                side="bottom", anchor="e", padx=6, pady=6)
+            ecanvas.draw()
+            status.config(text="live explorer — drag a slider", foreground="#0a7d2c")
 
         root.after(30, do)
 

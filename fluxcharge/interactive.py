@@ -107,6 +107,31 @@ def _normalize_ranges(result, ranges):
     return out
 
 
+def ranges_from_params(result, params, *, factor=3.0) -> "Dict[str, Tuple[float, float, float]]":
+    """Build slider ``(lo, hi, init)`` ranges centred on a known parameter point.
+
+    Each external bias keeps its physical period (flux ``0..2*pi``, charge
+    ``0..1``) with the given value as the initial position; every other parameter
+    gets a span ``[v/factor, v*factor]`` around its value ``v`` (a decade-ish
+    window), so the explorer opens already centred on the user's circuit."""
+    out = _default_ranges(result)
+    pv = {str(k): float(v) for k, v in (params or {}).items()}
+    for name in list(out):
+        if is_flux_bias(name) or is_charge_bias(name):
+            lo, hi, _ = out[name]
+            v = pv.get(name, out[name][2])
+            out[name] = (lo, hi, min(max(v, lo), hi))
+        elif name in pv:
+            v = pv[name]
+            if v > 0:
+                out[name] = (v / factor, v * factor, v)
+            elif v < 0:
+                out[name] = (v * factor, v / factor, v)
+            else:
+                out[name] = (0.0, 1.0, 0.0)
+    return out
+
+
 def spectrum_levels(result, params, *, n_levels=6, cutoffs=None, relative=True):
     """Eigenenergies for one parameter point (helper around ``eigenenergies``).
 
@@ -121,19 +146,21 @@ def spectrum_levels(result, params, *, n_levels=6, cutoffs=None, relative=True):
 
 def spectrum_slider(result, ranges: Optional[Dict] = None, *, n_levels: int = 6,
                     cutoffs: Optional[Dict] = None, relative: bool = True,
-                    title: Optional[str] = None, show: bool = True):
+                    title: Optional[str] = None, fig=None, show: bool = True):
     """Open an interactive window: energy levels (rows) vs. parameter sliders.
 
     * ``result`` -- a :class:`~fluxcharge.reduction.ReductionResult`.
     * ``ranges`` -- ``{param: (lo, hi)}`` or ``{param: (lo, hi, init)}``; any
       parameter omitted gets a generic span.  Defaults to all H parameters.
     * ``relative`` -- plot ``E_i - E_0`` (default) or absolute energies.
+    * ``fig`` -- draw into an existing Figure (e.g. one already bound to a Tk
+      ``FigureCanvasTkAgg``, so the sliders are live inside the app) instead of
+      opening a new pyplot window.
 
     Returns ``(fig, sliders)``; in a headless backend nothing is shown but the
     figure is fully built (and one update has run), which is what the tests check.
     """
     import numpy as np
-    import matplotlib.pyplot as plt
     from matplotlib.widgets import Slider
 
     rng = _normalize_ranges(result, ranges)
@@ -146,7 +173,10 @@ def spectrum_slider(result, ranges: Optional[Dict] = None, *, n_levels: int = 6,
     levels0 = spectrum_levels(result, init, n_levels=n_levels,
                               cutoffs=cutoffs, relative=relative)
 
-    fig = plt.figure(figsize=(7.5, 5.0))
+    own_fig = fig is None
+    if own_fig:
+        import matplotlib.pyplot as plt
+        fig = plt.figure(figsize=(7.5, 5.0))
     n_sl = len(names)
     ax = fig.add_axes([0.12, 0.18 + 0.06 * n_sl, 0.82, 0.74 - 0.06 * n_sl])
     ax.set_xlim(0, 1)
@@ -188,7 +218,8 @@ def spectrum_slider(result, ranges: Optional[Dict] = None, *, n_levels: int = 6,
         s.on_changed(update)
     update()  # ensure a consistent first frame (also exercises the path headless)
 
-    if show:
+    if show and own_fig:
+        import matplotlib.pyplot as plt
         plt.show()
     return fig, sliders
 
@@ -228,7 +259,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
                       *, n_levels: int = 6, cutoffs: Optional[Dict] = None,
                       quantity: str = "levels", npoints: int = 41,
                       relative: bool = True, weight_by=None, cmap: str = "viridis",
-                      title: Optional[str] = None, show: bool = True):
+                      title: Optional[str] = None, fig=None, show: bool = True):
     """Plot the spectrum as **curves vs one swept parameter**, with sliders for
     the rest (the ``scqubits.plot_evals_vs_paramvals`` pattern, made live).
 
@@ -246,7 +277,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
     Returns ``(fig, sliders)``.  Built fully in a headless backend (testable).
     """
     import numpy as np
-    import matplotlib.pyplot as plt
+    from matplotlib.colors import Normalize
     from matplotlib.widgets import Slider
     from matplotlib.collections import LineCollection
 
@@ -296,7 +327,10 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
                 pass  # leave NaN at unreachable points
         return Y, W
 
-    fig = plt.figure(figsize=(7.8, 5.2))
+    own_fig = fig is None
+    if own_fig:
+        import matplotlib.pyplot as plt
+        fig = plt.figure(figsize=(7.8, 5.2))
     n_sl = len(others)
     ax = fig.add_axes([0.12, 0.16 + 0.06 * n_sl, 0.74 if drive else 0.82,
                        0.76 - 0.06 * n_sl])
@@ -313,7 +347,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
 
     if drive:                                   # colour by transition strength
         wmax = float(np.nanmax(W0)) if np.isfinite(W0).any() else 1.0
-        norm = plt.Normalize(0.0, wmax or 1.0)
+        norm = Normalize(0.0, wmax or 1.0)
         collections = []
         for i in range(n_curves):
             lc = LineCollection(_segments(Y0[:, i]), cmap=cmap, norm=norm, lw=2.2)
@@ -351,7 +385,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
             for i, lc in enumerate(collections):
                 lc.set_segments(_segments(Y[:, i]))
                 lc.set_array(W[:-1, i])
-                lc.set_norm(plt.Normalize(0.0, wmax or 1.0))
+                lc.set_norm(Normalize(0.0, wmax or 1.0))
         else:
             for i, ln in enumerate(curves):
                 ln.set_ydata(Y[:, i])
@@ -366,6 +400,7 @@ def spectrum_vs_param(result, sweep: Optional[str] = None, ranges: Optional[Dict
                                        fig.canvas.draw_idle())) if n == sweep else update)
     _rescale(Y0)
 
-    if show:
+    if show and own_fig:
+        import matplotlib.pyplot as plt
         plt.show()
     return fig, sliders

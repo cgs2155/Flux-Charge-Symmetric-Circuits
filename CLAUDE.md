@@ -53,7 +53,16 @@ wrong or incomplete Hamiltonian.
 - `gui.py` — themed Tkinter app (`fluxcharge-gui`). `compute()` is the headless
   core (testable). Renders schematic + Ĥ + commutators via matplotlib mathtext
   (cm fontset); operators are hatted, c-number params are not. "LaTeX (system
-  TeX)" toggle (usetex with mathtext fallback). "Dualize" button.
+  TeX)" toggle (usetex with mathtext fallback). "Dualize" button. "Sweep" (static
+  spectrum-vs-parameter) and **"Live"** (interactive `interactive.spectrum_vs_param`
+  embedded via `FigureCanvasTkAgg`, so the sliders are responsive in-app).
+- `interactive.py` — standalone interactive spectrum explorers on `matplotlib.
+  widgets.Slider` + the package's own `eigenenergies` (so they work for the
+  gyrator/QPS circuits scqubits can't represent; scqubits' own widgets are
+  Jupyter/ipywidgets-only). `spectrum_slider` (levels as rows) and
+  `spectrum_vs_param` (levels/transitions as curves vs one swept param; bias-aware
+  ranges — flux 0..2π, charge 0..1; auto-picks a bias axis; optional `weight_by`
+  matrix-element colouring). Accept `fig=` to embed in a Tk-bound figure.
 - `__main__.py` — CLI (`analyze`, `main`).
 
 ## Key validated results (keep these passing)
