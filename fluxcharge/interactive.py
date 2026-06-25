@@ -132,6 +132,34 @@ def ranges_from_params(result, params, *, factor=3.0) -> "Dict[str, Tuple[float,
     return out
 
 
+def auto_cutoffs(result, *, extended: int = 40, integer: int = 41,
+                 max_total: int = 4000) -> "Dict[str, int]":
+    """Sensible per-mode basis sizes, keyed by the variable each mode is
+    diagonalized in.
+
+    An ``EXTENDED`` (oscillator) mode is truncated in its flux/Fock basis; a
+    ``PERIODIC`` / ``DUAL_PERIODIC`` mode in its integer (charge / fluxoid) basis
+    -- which must be odd (``-n..n``).  Sizes are capped so the tensor-product
+    dimension stays small enough to stay responsive while sweeping (a single
+    mode keeps the full size; more modes shrink each).  Returns a dict ready to
+    pass as ``cutoffs=`` (keyed by the basis variable, which is exactly what the
+    numeric builder looks up); merge user-supplied cutoffs over it to override."""
+    try:
+        modes = result.modes()
+    except Exception:
+        return {}
+    n = max(1, len(modes))
+    cap = max(7, int(round(max_total ** (1.0 / n))))
+    cut: "Dict[str, int]" = {}
+    for m in modes:
+        if m.kind == "extended":
+            cut[str(m.flux)] = min(extended, cap)
+        else:                                   # integer basis (odd, -n..n)
+            d = min(integer, cap)
+            cut[str(m.discrete)] = 2 * ((d - 1) // 2) + 1
+    return cut
+
+
 def spectrum_levels(result, params, *, n_levels=6, cutoffs=None, relative=True):
     """Eigenenergies for one parameter point (helper around ``eigenenergies``).
 

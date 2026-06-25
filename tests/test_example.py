@@ -719,6 +719,23 @@ def test_interactive_transition_strength_weighting():
     assert np.nanmax(f01) - np.nanmin(f01) > 1e-2 # strength varies over the sweep
 
 
+def test_interactive_auto_cutoffs_basis_aware():
+    """auto_cutoffs picks the basis each mode is diagonalized in: a charge basis
+    for a PERIODIC (transmon-like) mode -- keyed by the charge, odd size -- and a
+    flux/Fock basis for an EXTENDED (fluxonium-like) mode, keyed by the flux."""
+    _require_numpy()
+    from fluxcharge import library
+    from fluxcharge.interactive import auto_cutoffs
+
+    tr = library.transmon(); tr.set_offset_charge("v2")
+    ct = auto_cutoffs(tr.hamiltonian(ground="v1", canonical=True))
+    assert set(ct) == {"q_f1"} and ct["q_f1"] % 2 == 1      # charge basis, odd
+
+    fx = auto_cutoffs(library.fluxonium().hamiltonian(
+        ground="v1", open_loops="f3", canonical=True))
+    assert set(fx) == {"phi_v2"}                            # flux/Fock basis
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with

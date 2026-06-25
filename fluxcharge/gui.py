@@ -1326,12 +1326,43 @@ def main():  # pragma: no cover - interactive
         win.grab_set(); root.wait_window(win)
         return holder["choice"]
 
+    def _bias_label(name):
+        if name.startswith("phi_ext_"):
+            return f"loop flux  Φ_ext  through {name[len('phi_ext_'):]}   ({name})"
+        if name.startswith("n_g_"):
+            return f"gate charge  n_g  on {name[len('n_g_'):]}   ({name})"
+        return name
+
+    def _ask_choose_bias(biases):
+        """Pick which external variable to sweep when a circuit has several."""
+        win = tk.Toplevel(root); win.title("Choose the variable to sweep")
+        win.transient(root); win.configure(bg=BG)
+        ttk.Label(win, wraplength=420, style="Muted.TLabel",
+                  text="This circuit has several external variables. Sweep which "
+                       "one? (the others stay fixed at their set values)"
+                  ).grid(row=0, column=0, padx=12, pady=(12, 8), sticky="w")
+        labels = [_bias_label(b) for b in biases]
+        cb = ttk.Combobox(win, values=labels, state="readonly", width=44)
+        cb.set(labels[0]); cb.grid(row=1, column=0, padx=12, pady=2, sticky="w")
+        holder = {"pick": None}
+
+        def on_ok():
+            holder["pick"] = biases[labels.index(cb.get())]; win.destroy()
+        btns = ttk.Frame(win); btns.grid(row=2, column=0, pady=12)
+        ttk.Button(btns, text="Sweep it", command=on_ok).pack(side="left", padx=5)
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="left", padx=5)
+        win.bind("<Return>", lambda _e: on_ok())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.grab_set(); root.wait_window(win)
+        return holder["pick"]
+
     def live_explore():
         """Open an interactive window showing the spectrum vs an external Noether
         variable (gate charge / loop flux) over its physical period, with live
         sliders for the circuit parameters.  Embedded in Tk."""
         from .interactive import (spectrum_vs_param, ranges_from_params,
-                                   parameter_symbols, is_flux_bias, is_charge_bias)
+                                   parameter_symbols, is_flux_bias, is_charge_bias,
+                                   auto_cutoffs)
         text = netlist.get("1.0", "end-1c")
         try:
             n = max(2, int(levels_entry.get() or 6))
@@ -1371,12 +1402,24 @@ def main():  # pragma: no cover - interactive
                               foreground="#b26a00")
                 return
 
-        # sweep the bias named in the sweep box if it is one, else the first
+        # choose the variable to sweep: the sweep box if it names a bias, else
+        # the only one, else ask which
         want = sweep_param.get().strip()
-        sweep = want if want in biases else biases[0]
+        if want in biases:
+            sweep = want
+        elif len(biases) == 1:
+            sweep = biases[0]
+        else:
+            sweep = _ask_choose_bias(biases)
+            if sweep is None:
+                return
         quantity = sweep_quantity.get()
         if quantity not in ("levels", "transitions"):
             quantity = "levels"                     # 'anharmonicity' has no live view
+        # basis-aware default cutoffs (charge vs flux/Fock), user entries override
+        cut = dict(auto_cutoffs(res))
+        cut.update(cutoffs or {})
+        cutoffs = cut or None
         ranges = ranges_from_params(res, base)
         busy_on(f"sweeping {sweep}…")
 
