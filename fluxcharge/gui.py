@@ -766,8 +766,8 @@ def main():  # pragma: no cover - interactive
                    "levels", "transitions", "anharmonicity").pack(side="left", padx=2)
     ttk.Button(sweep_wrap, text="Sweep", command=lambda: sweep_plot()).pack(
         side="left", padx=(6, 2))
-    ttk.Button(sweep_wrap, text="Live", command=lambda: live_explore()).pack(
-        side="left")
+    ttk.Button(sweep_wrap, text="Live (vs flux/charge)",
+               command=lambda: live_explore()).pack(side="left")
 
     # ---- details report (bottom-right) ----
     rep_card = card(bottom, "details")
@@ -1280,44 +1280,117 @@ def main():  # pragma: no cover - interactive
 
         root.after(30, do)
 
+    def _ask_add_bias(ckt):
+        """No external bias on the circuit yet: let the user add one to sweep --
+        a gate charge on a node, or an external flux through a loop.  Returns
+        ("charge"|"flux", name) or None if cancelled."""
+        if not ckt.loops:
+            try:
+                ckt.infer_loops()
+            except Exception:
+                pass
+        ground = getattr(ckt, "ground", None)
+        opts = []   # (kind, name, label)
+        for v in ckt.vertices:
+            if v == ground:
+                continue
+            opts.append(("charge", v, f"gate charge  n_g  on node {v}"))
+        for lp in ckt.loops:
+            opts.append(("flux", lp, f"external flux  Φ_ext  through loop {lp}"))
+        if not opts:
+            status.config(text="no node/loop available to bias", foreground="#b26a00")
+            return None
+
+        win = tk.Toplevel(root); win.title("Sweep an external variable")
+        win.transient(root); win.configure(bg=BG)
+        ttk.Label(win, wraplength=420, style="Muted.TLabel",
+                  text="This circuit has no external bias to sweep yet. Add one to "
+                       "see the spectrum vs an external Noether variable (e.g. a "
+                       "transmon's gate charge, a fluxonium's loop flux):"
+                  ).grid(row=0, column=0, padx=12, pady=(12, 8), sticky="w")
+        labels = [lab for _k, _n, lab in opts]
+        cb = ttk.Combobox(win, values=labels, state="readonly", width=42)
+        cb.set(labels[0])
+        cb.grid(row=1, column=0, padx=12, pady=2, sticky="w")
+        holder = {"choice": None}
+
+        def on_ok():
+            i = labels.index(cb.get())
+            holder["choice"] = (opts[i][0], opts[i][1])
+            win.destroy()
+        btns = ttk.Frame(win); btns.grid(row=2, column=0, pady=12)
+        ttk.Button(btns, text="Sweep it", command=on_ok).pack(side="left", padx=5)
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="left", padx=5)
+        win.bind("<Return>", lambda _e: on_ok())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.grab_set(); root.wait_window(win)
+        return holder["choice"]
+
     def live_explore():
-        """Open an interactive spectrum window with live parameter sliders,
-        embedded in Tk (so the sliders are responsive inside the app)."""
+        """Open an interactive window showing the spectrum vs an external Noether
+        variable (gate charge / loop flux) over its physical period, with live
+        sliders for the circuit parameters.  Embedded in Tk."""
         from .interactive import (spectrum_vs_param, ranges_from_params,
-                                   parameter_symbols)
+                                   parameter_symbols, is_flux_bias, is_charge_bias)
         text = netlist.get("1.0", "end-1c")
         try:
             n = max(2, int(levels_entry.get() or 6))
             base = _diag_params(text)
             cutoffs = _cutoffs()
-            res = _current_result(text)
+            ckt = from_netlist(text); ckt.validate()
+            res = ckt.hamiltonian(ground=getattr(ckt, "ground", None),
+                                  open_loops=getattr(ckt, "open_loops", None) or None,
+                                  canonical=True)
         except Exception as exc:
             report_error(exc)
             return
+
+        def _biases(r):
+            return [str(s) for s in parameter_symbols(r)
+                    if is_flux_bias(str(s)) or is_charge_bias(str(s))]
+
+        biases = _biases(res)
+        if not biases:
+            choice = _ask_add_bias(ckt)
+            if not choice:
+                return
+            kind, name = choice
+            try:
+                if kind == "charge":
+                    ckt.set_offset_charge(name)
+                else:
+                    ckt.set_flux_bias(name)
+                res = ckt.hamiltonian(ground=getattr(ckt, "ground", None),
+                                      open_loops=getattr(ckt, "open_loops", None) or None,
+                                      canonical=True)
+            except Exception as exc:
+                report_error(exc); return
+            biases = _biases(res)
+            if not biases:
+                status.config(text="could not add an external bias to sweep",
+                              foreground="#b26a00")
+                return
+
+        # sweep the bias named in the sweep box if it is one, else the first
+        want = sweep_param.get().strip()
+        sweep = want if want in biases else biases[0]
         quantity = sweep_quantity.get()
         if quantity not in ("levels", "transitions"):
             quantity = "levels"                     # 'anharmonicity' has no live view
-        names = {str(s) for s in parameter_symbols(res)}
-        if not names:
-            status.config(text="no free parameters to slide", foreground="#b26a00")
-            return
-        want = sweep_param.get().strip()
-        sweep = want if want in names else None     # else auto-pick (a bias, ...)
         ranges = ranges_from_params(res, base)
-        busy_on("building live explorer…")
+        busy_on(f"sweeping {sweep}…")
 
         def do():
             win = tk.Toplevel(root)
-            win.title("fluxcharge — live spectrum")
+            win.title(f"fluxcharge — spectrum vs {sweep}")
             win.configure(bg=SURFACE)
             efig = Figure(figsize=(7.6, 5.2))
             efig.patch.set_facecolor("white")
             ecanvas = FigureCanvasTkAgg(efig, master=win)
             ecanvas.get_tk_widget().pack(fill="both", expand=True, side="top")
             try:
-                # draw into our Tk-bound figure so the sliders are live in-app.
-                # plain coloured curves + a coarse grid keep each recompute cheap
-                # so the sliders stay responsive (no per-point matrix elements).
+                # spectrum vs the external bias (x-axis), live sliders for the
+                # circuit parameters; coarse grid + no colouring -> responsive
                 spectrum_vs_param(res, sweep=sweep, ranges=ranges, n_levels=n,
                                   cutoffs=cutoffs, quantity=quantity,
                                   weight_by=False, npoints=21, fig=efig, show=False)
@@ -1334,7 +1407,8 @@ def main():  # pragma: no cover - interactive
             ttk.Button(win, text="Save plot…", command=save_live).pack(
                 side="bottom", anchor="e", padx=6, pady=6)
             ecanvas.draw()
-            status.config(text="live explorer — drag a slider", foreground="#0a7d2c")
+            status.config(text=f"spectrum vs {sweep} — drag a parameter slider",
+                          foreground="#0a7d2c")
 
         root.after(30, do)
 
