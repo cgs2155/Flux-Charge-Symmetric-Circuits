@@ -51,23 +51,19 @@ if __name__ == "__main__":
     show("Phase-slip qubit vs transmon (duality)", rq.H)
     print(f"  max |level difference| = {np.max(np.abs(ev_q-ev_t)):.2e}  (should be ~0)")
 
-    # --- zero-pi: a 3-mode circuit whose compact mode is guarded ---
-    from fluxcharge.canonicalize import CompactLatticeError
+    # --- zero-pi: a 3-mode protected qubit (one compact, two extended) ---
     zp = library.zero_pi()
-    rz = zp.hamiltonian(ground="n1", strict=False, canonical=True)
+    rz = zp.hamiltonian(ground="v1", strict=False, canonical=True)
     show("Zero-pi (3 modes)", rz.H)
     print("  modes (auto-classified):", [(str(m.flux), str(m.charge), m.kind)
                                           for m in rz.modes()])
-    try:
-        rz.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
-                         n_levels=4, cutoffs={str(b): 6 for _a, b, _c in rz.conjugate_pairs})
-    except CompactLatticeError as e:
-        print("  [guarded] eigenenergies refused to diagonalize 0-pi:")
-        print("  ", str(e)[:300])
-        print("  (0-pi has a compact mode theta = phi_n2 + phi_n3 hidden by the node")
-        print("   frame; the naive choice gives a half-integer cosine. Quantizing it")
-        print("   correctly needs a user-supplied lattice-aware frame -- the package")
-        print("   refuses rather than return a silently-wrong spectrum.)")
+    # the node frame here makes the compact junction phase manifest (one PERIODIC
+    # mode), so it diagonalizes cleanly -- no hidden-compact obstruction
+    cut = {str(b): 8 for _a, b, _c in rz.conjugate_pairs}
+    evz = rz.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
+                           n_levels=4, cutoffs=cut)
+    print("  spectrum (cutoff 8/mode; raise cutoffs to converge further):",
+          np.round(evz - evz[0], 4))
 
     # --- circulator: non-reciprocal, gyrator cross term ---
     cir = library.circulator()

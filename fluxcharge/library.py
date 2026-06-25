@@ -87,29 +87,33 @@ def phase_slip_qubit(charge_bias: bool = True) -> Circuit:
 
 def zero_pi() -> Circuit:
     """The 0-pi qubit: two Josephson junctions (with junction capacitances), two
-    superinductors and two large shunt capacitors on a 4-node ring (``E_J``,
-    ``C_J``, ``L``, ``C``).
+    superinductors and two large cross-capacitors (``E_J``, ``C_J``, ``L``,
+    ``C``).
 
-    A protected qubit, and a good multi-mode showcase: it reduces to three
-    degrees of freedom.  In fluxcharge's node coordinates all three classify as
-    ``EXTENDED`` (scqubits uses symmetry-adapted coordinates where one mode is
-    periodic and one is a decoupled harmonic; the spectrum is the same, the
-    decomposition differs).  Converged diagonalization is demanding -- three
-    modes, with a very soft inductive mode -- so set generous ``cutoffs=`` and
-    expect a large basis (this is where symmetry-adapted tools are more
-    efficient).
+    A protected qubit and the canonical multi-mode showcase.  The node frame
+    used here -- both junctions meeting at ``v3``, both inductors at ``v1``,
+    cross-capacitors on ``v1-v3`` and ``v2-v4`` -- is the one in which the
+    circuit's compact mode is **manifest**: it reduces to three modes, one
+    *periodic* (the junction phase ``phi_v3`` lives only inside cosines, with
+    integer coefficients) and two *extended*.  Because the compact coordinate is
+    aligned with the frame, the spectrum diagonalizes cleanly (no hidden-compact
+    / ``cos(theta/2)`` lattice obstruction).  Ships with a default schematic
+    layout (an equilateral triangle ``v1, v2, v3`` with ``v4`` at the centre).
     """
     c = Circuit()
     c.title = "Zero-pi"
-    c.add_josephson("e1", "n1", "n2", EJ="E_J")
-    c.add_capacitor("cJ1", "n1", "n2", C="C_J")
-    c.add_josephson("e2", "n3", "n4", EJ="E_J")
-    c.add_capacitor("cJ2", "n3", "n4", C="C_J")
-    c.add_inductor("e3", "n2", "n3", L="L")
-    c.add_inductor("e4", "n4", "n1", L="L")
-    c.add_capacitor("e5", "n1", "n3", C="C")
-    c.add_capacitor("e6", "n2", "n4", C="C")
-    c.ground = "n1"
+    c.add_josephson("j1", "v2", "v3", EJ="E_J")
+    c.add_capacitor("cJ1", "v2", "v3", C="C_J")
+    c.add_josephson("j2", "v4", "v3", EJ="E_J")
+    c.add_capacitor("cJ2", "v4", "v3", C="C_J")
+    c.add_inductor("l1", "v1", "v2", L="L")
+    c.add_inductor("l2", "v1", "v4", L="L")
+    c.add_capacitor("c1", "v1", "v3", C="C")        # cross-capacitor
+    c.add_capacitor("c2", "v2", "v4", C="C")        # cross-capacitor
+    c.ground = "v1"
+    # preferred schematic layout: triangle (v1, v2, v3) with v4 at the centre
+    c._positions = {"v1": (-5.16, -3.0), "v2": (0.0, 6.0),
+                    "v3": (5.16, -3.0), "v4": (0.0, 0.0)}
     return c
 
 

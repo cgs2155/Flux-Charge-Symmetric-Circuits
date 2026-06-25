@@ -88,6 +88,16 @@ wrong or incomplete Hamiltonian.
   transmon/fluxonium/circulator spectra (tested).
 
 ## Known issues / open problems (IMPORTANT — read before trusting multi-mode output)
+- **UPDATE (0-π now diagonalizes):** `library.zero_pi` was changed to the node
+  frame in which its compact mode is *manifest* — both junctions meet at `v3`,
+  both inductors at `v1`, cross-caps on `v1-v3` and `v2-v4` (a co-author's
+  drawing). There the junction phase `phi_v3` enters only cosines with integer
+  coefficients, so the reduction yields one PERIODIC + two EXTENDED modes and the
+  spectrum diagonalizes cleanly — no hidden-compact / `cos(θ/2)` obstruction, no
+  `CompactLatticeError`. So the *specific* 0-π is fixed. What remains open is the
+  **general** problem: auto-finding such a frame for an *arbitrary* multi-mode
+  circuit whose compact mode is hidden by coordinate mixing (the items below).
+  The guard still protects circuits where no manifest-compact frame is supplied.
 - **Multi-mode canonicalization is wrong when the reduced symplectic form is not
   block-diagonal.** `reduction._pairs_from_form` + `ReductionResult.canonical()`
   read each conjugate pair off a single entry of the reduced form (per graph

@@ -252,6 +252,11 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
         except Exception:
             pass
 
+    # a circuit may carry a preferred layout (e.g. the library 0-pi ships its
+    # triangle-with-centre positions); use it when the caller gives none
+    if positions is None:
+        positions = getattr(circuit, "_positions", None)
+
     if positions is not None:
         pos = {k: np.asarray(v, dtype=float) for k, v in positions.items()}
         G = circuit.to_networkx()
@@ -325,12 +330,17 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
         L = float(np.linalg.norm(base)) or scale
         base_nhat = (np.array([-base[1], base[0]]) / L) if L else np.array([0.0, 1.0])
 
+        # parallel-sibling offset: a small fixed separation (tied to the element
+        # size, not the edge length) so two elements on the same node pair sit as
+        # a tight pair rather than swinging far out on a long edge
+        sib = min(0.42 * L, 0.55 * unit)
+
         # choose a signed perpendicular offset for each parallel edge
         if m == 1:
             offs = [0.0]
         elif n_nodes <= 2:
             # an isolated multi-edge bundle (e.g. an LC loop): fan symmetrically
-            offs = list(np.linspace(-1.0, 1.0, m) * 0.42 * L)
+            offs = list(np.linspace(-1.0, 1.0, m) * sib)
         else:
             # planar rule: outer-face edges bow outward (away from centroid),
             # interior siblings stay on the straight chord
@@ -349,9 +359,9 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
                     offs.append(sign * 0.42 * L * n_out)   # stack outward
                 else:
                     offs.append(0.0)                        # straight chord
-            # if none flagged outer (no face info), fall back to symmetric fan
+            # if none flagged outer (no face info), fall back to a tight fan
             if not outer_list:
-                offs = list(np.linspace(-1.0, 1.0, m) * 0.42 * L)
+                offs = list(np.linspace(-1.0, 1.0, m) * sib)
 
         for (u, v, k), off in zip(elist, offs):
             data = G.get_edge_data(u, v, k)

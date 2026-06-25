@@ -1051,27 +1051,25 @@ def test_library_circuits_reduce_and_diagonalize():
             pass  # multi-mode compact frame not auto-quantizable (0-pi) -- guarded
 
 
-def test_zero_pi_compact_mode_is_guarded():
-    """The 0-pi qubit reduces completely to three modes with the two Josephson
-    cosines, but its compact mode theta = phi_n2 + phi_n3 carries no inductive
-    energy while every node flux individually does -- so the per-coordinate
-    classification wrongly sees three extended modes.  Quantizing it that way
-    diverges (the compact theta needs an integer basis, not an oscillator), and
-    the naive frame yields a half-integer cosine with no integer-lattice
-    representation.  eigenenergies therefore raises CompactLatticeError rather
-    than returning a silently-wrong spectrum; a correct spectrum needs a
-    user-supplied lattice-aware frame."""
+def test_zero_pi_manifest_compact_mode():
+    """In its manifest-compact node frame (both junctions meeting at v3), the
+    0-pi qubit reduces to three modes -- one PERIODIC (the junction phase phi_v3
+    enters only cosines, with integer coefficients) and two EXTENDED -- so it
+    quantizes cleanly, with no hidden-compact / cos(theta/2) obstruction, and the
+    spectrum converges as the cutoff grows."""
     _require_numpy()
+    import numpy as np
     from fluxcharge import library
-    from fluxcharge.canonicalize import CompactLatticeError
-    res = library.zero_pi().hamiltonian(ground="n1", strict=False, canonical=True)
+    res = library.zero_pi().hamiltonian(ground="v1", strict=False, canonical=True)
     assert res.complete
-    assert len(res.modes()) == 3
+    assert sorted(m.kind for m in res.modes()) == ["extended", "extended", "periodic"]
     assert sum(1 for _ in res.H.atoms(sp.cos)) == 2          # two junctions
-    cut = {str(b): 5 for _a, b, _c in res.conjugate_pairs}
-    with pytest.raises(CompactLatticeError):
-        res.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
-                          n_levels=3, cutoffs=cut)
+    p = {"E_J": 1.0, "C_J": 1.0, "L": 1.0, "C": 1.0}
+    e8 = res.eigenenergies(p, n_levels=5, cutoffs={str(b): 8 for _a, b, _c in res.conjugate_pairs})
+    e10 = res.eigenenergies(p, n_levels=5, cutoffs={str(b): 10 for _a, b, _c in res.conjugate_pairs})
+    e8, e10 = e8 - e8[0], e10 - e10[0]
+    assert np.all(np.isreal(e10))
+    assert np.allclose(e8, e10, atol=0.05)                    # converging
 
 
 def test_tidy_hamiltonian_collects_and_preserves_spectrum():
@@ -1084,7 +1082,7 @@ def test_tidy_hamiltonian_collects_and_preserves_spectrum():
     from fluxcharge import library, Circuit, dual
     from fluxcharge.reduction import tidy_hamiltonian
 
-    res = library.zero_pi().hamiltonian(ground="n1", strict=False, canonical=True)
+    res = library.zero_pi().hamiltonian(ground="v1", strict=False, canonical=True)
     # the collected form is much shorter than the raw expanded sum...
     assert len(sp.Add.make_args(res.H)) < len(sp.Add.make_args(sp.expand(res.H)))
     # ...but it is the *same* Hamiltonian
