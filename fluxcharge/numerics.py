@@ -254,6 +254,87 @@ def _np():
     return np
 
 
+def _symify(params):
+    return {sp.sympify(k): v for k, v in (params or {}).items()}
+
+
+def _reduced_bracket(result, params):
+    """The numeric **bracket matrix** ``Pi = f^{-1}`` of the reduced circuit,
+    in the order of ``result.coordinates`` (so ``[xi_i, xi_j] = i*hbar*Pi_ij``)."""
+    np = _np()
+    fn = sp.Matrix(result.symplectic_matrix).subs(_symify(params))
+    if fn.free_symbols:
+        raise ValueError("the reduced symplectic form still has free symbols "
+                         f"{sorted(map(str, fn.free_symbols))}; pass them in params=")
+    Pi = np.linalg.inv(np.array(fn).astype(float))
+    surv = list(result.coordinates)
+    return Pi, surv, {s: i for i, s in enumerate(surv)}
+
+
+def bracket_is_block_diagonal(result, params, tol: float = 1e-9) -> bool:
+    """True iff the reduced bracket is block-diagonal in the conjugate pairs.
+
+    The per-pair operator construction (one charge per flux, each pair built as
+    an independent canonical degree of freedom) is exact **only** in this case --
+    every single-mode circuit, and decoupled multi-mode ones.  When it is False
+    the flux<->charge block is dense (the generic multi-mode case, including
+    gyrator-coupled and 0-pi-like circuits): building per pair would silently
+    drop the cross-brackets and give a wrong spectrum, so the numeric layer
+    refuses (see :class:`~fluxcharge.canonicalize.CompactLatticeError`) and only
+    the exact-quadratic path (Williamson) is taken when applicable."""
+    if not result.complete or not result.conjugate_pairs:
+        return False
+    np = _np()
+    Pi, surv, idx = _reduced_bracket(result, params)
+    M = Pi.copy()
+    for a, b, _c in result.conjugate_pairs:
+        if a in idx and b in idx:
+            i, j = idx[a], idx[b]
+            M[i, j] = M[j, i] = 0.0
+    return float(np.abs(M).max()) < tol
+
+
+def _is_quadratic(Hexpr) -> bool:
+    """No Josephson/phase-slip cosine -> a purely quadratic (linear-circuit) H,
+    whose spectrum is exactly the normal-mode (Williamson) ladder."""
+    return not (Hexpr.has(sp.cos) or Hexpr.has(sp.sin))
+
+
+def _quadratic_levels(result, params, n_levels):
+    """Exact eigenenergies of a purely **quadratic** reduced Hamiltonian, from
+    the symplectic (Williamson) normal-mode frequencies.
+
+    Valid for *any* linear circuit regardless of how the bracket couples the
+    modes -- reciprocal or gyrator-coupled, block-diagonal or dense -- because
+    the Williamson frequencies are invariant under any linear canonical map.
+    The levels are ``E_min + sum_k (n_k + 1/2) omega_k`` (``n_k >= 0``)."""
+    import itertools
+    np = _np()
+    from .canonicalize import symplectic_eigenvalues
+
+    Pi, surv, _idx = _reduced_bracket(result, params)
+    H = sp.expand(result.H.subs(_symify(params)))
+    zero = {s: 0 for s in surv}
+    c0 = float(H.subs(zero))
+    b = np.array([float(sp.diff(H, s).subs(zero)) for s in surv])
+    K = np.array(sp.hessian(H, surv)).astype(float)
+    try:
+        xstar = np.linalg.solve(K, -b)        # complete the square: minimum of H
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("quadratic Hamiltonian is not confining (singular "
+                         "Hessian); the reduction left an unconfined mode") from exc
+    e_min = c0 + float(b @ xstar) + 0.5 * float(xstar @ K @ xstar)
+    om = symplectic_eigenvalues(Pi, K)
+    if len(om) == 0:
+        raise ValueError("no positive normal-mode frequencies; the quadratic "
+                         "Hamiltonian is not positive-definite")
+    e0 = e_min + 0.5 * float(np.sum(om))
+    mx = int(n_levels)
+    energies = sorted(e0 + float(sum(nk * ok for nk, ok in zip(c, om)))
+                      for c in itertools.product(range(mx + 1), repeat=len(om)))
+    return np.array(energies[:n_levels])
+
+
 def _annihilation(n: int):
     np = _np()
     return np.diag(np.sqrt(np.arange(1, n)), 1)
@@ -301,6 +382,26 @@ class _OperatorBuilder:
 
         # refuse to silently mis-quantize a compact mode hidden by the frame
         check_compact_frame(result, self.modes, self.Hnum)
+
+        # refuse the per-pair operator construction when the reduced bracket is
+        # not block-diagonal in the conjugate pairs: a dense flux<->charge block
+        # (the generic multi-mode case -- gyrator-coupled, 0-pi-like) means
+        # building each pair independently would silently discard the cross-
+        # brackets and give a wrong spectrum.  (eigenenergies() routes a purely
+        # quadratic such circuit to the exact Williamson ladder before reaching
+        # here; what remains is the nonlinear multi-mode case, the open problem.)
+        if not bracket_is_block_diagonal(result, params):
+            from .canonicalize import CompactLatticeError
+            raise CompactLatticeError(
+                "the reduced symplectic form is not block-diagonal in the "
+                "conjugate pairs (a dense flux-charge bracket, as for a "
+                "multi-mode / gyrator-coupled / 0-pi-like circuit). The per-pair "
+                "operator basis would silently drop the cross-brackets and give a "
+                "wrong spectrum, so diagonalization is refused. The symbolic "
+                "Hamiltonian is still correct; a purely *linear* such circuit "
+                "still gets an exact spectrum from eigenenergies() (Williamson "
+                "normal modes). The general nonlinear multi-mode case needs a "
+                "lattice-aware Darboux basis (scqubits.ZeroPi / a grid for 0-pi).")
 
         # per-mode local dimension
         # default basis size per mode, scaled down for many modes so the
@@ -514,7 +615,19 @@ def eigensystem(result, params=None, n_levels=6, cutoffs=None, offsets=None,
 
 def eigenenergies(result, params=None, n_levels=6, cutoffs=None, offsets=None,
                   mode_types=None):
-    """Lowest ``n_levels`` eigenvalues of the reduced Hamiltonian (sorted)."""
+    """Lowest ``n_levels`` eigenvalues of the reduced Hamiltonian (sorted).
+
+    A purely **quadratic** circuit whose reduced bracket is *dense* (a multi-mode
+    linear circuit, e.g. gyrator-coupled oscillators) is solved exactly from its
+    symplectic normal-mode (Williamson) frequencies -- the per-pair operator
+    basis would be wrong there.  Block-diagonal circuits (every single-mode one)
+    take the operator-basis path unchanged; a *nonlinear* dense circuit is
+    refused by the operator builder (the open multi-mode problem)."""
+    if result.complete and not bracket_is_block_diagonal(result, params):
+        H = sp.expand(result.H.subs(_symify(params)))
+        if _is_quadratic(H):
+            return _quadratic_levels(result, params, n_levels)
+        # dense + nonlinear: fall through; the builder raises CompactLatticeError
     return eigensystem(result, params, n_levels, cutoffs, offsets, mode_types)[0]
 
 

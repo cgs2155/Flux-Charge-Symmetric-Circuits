@@ -1247,25 +1247,57 @@ def test_library_circuits_reduce_and_diagonalize():
             pass  # multi-mode compact frame not auto-quantizable (0-pi) -- guarded
 
 
-def test_zero_pi_manifest_compact_mode():
-    """In its manifest-compact node frame (both junctions meeting at v3), the
-    0-pi qubit reduces to three modes -- one PERIODIC (the junction phase phi_v3
-    enters only cosines, with integer coefficients) and two EXTENDED -- so it
-    quantizes cleanly, with no hidden-compact / cos(theta/2) obstruction, and the
-    spectrum converges as the cutoff grows."""
+def test_zero_pi_dense_bracket_is_guarded():
+    """The 0-pi qubit's symbolic reduction is correct (three modes, two junction
+    cosines), but its reduced bracket is **dense** -- the flux<->charge block is
+    not block-diagonal in the conjugate pairs (cross-brackets ~0.67) -- and it is
+    nonlinear, so the per-pair operator basis would silently drop those
+    cross-brackets and give a wrong spectrum.  The numeric layer must refuse
+    (CompactLatticeError) rather than return an unjustified number; the symbolic
+    Hamiltonian is still the correct deliverable."""
     _require_numpy()
-    import numpy as np
     from fluxcharge import library
+    from fluxcharge.numerics import bracket_is_block_diagonal
+    from fluxcharge.canonicalize import CompactLatticeError
     res = library.zero_pi().hamiltonian(ground="v1", strict=False, canonical=True)
     assert res.complete
     assert sorted(m.kind for m in res.modes()) == ["extended", "extended", "periodic"]
     assert sum(1 for _ in res.H.atoms(sp.cos)) == 2          # two junctions
     p = {"E_J": 1.0, "C_J": 1.0, "L": 1.0, "C": 1.0}
-    e8 = res.eigenenergies(p, n_levels=5, cutoffs={str(b): 8 for _a, b, _c in res.conjugate_pairs})
-    e10 = res.eigenenergies(p, n_levels=5, cutoffs={str(b): 10 for _a, b, _c in res.conjugate_pairs})
-    e8, e10 = e8 - e8[0], e10 - e10[0]
-    assert np.all(np.isreal(e10))
-    assert np.allclose(e8, e10, atol=0.05)                    # converging
+    assert not bracket_is_block_diagonal(res, p)             # dense flux-charge block
+    with pytest.raises(CompactLatticeError):
+        res.eigenenergies(p, n_levels=5,
+                          cutoffs={str(b): 8 for _a, b, _c in res.conjugate_pairs})
+
+
+def test_quadratic_dense_circuit_uses_williamson():
+    """A purely *linear* multi-mode circuit with a dense bracket (here a gyrator
+    coupling two LC oscillators) is solved exactly from its symplectic normal-mode
+    (Williamson) frequencies -- the per-pair basis cannot, but the quadratic
+    spectrum is convention-free.  The single-mode LC check pins the frequency to
+    1/sqrt(LC)."""
+    _require_numpy()
+    import numpy as np
+    import sympy as sp
+    from fluxcharge import library, Circuit
+    from fluxcharge.numerics import bracket_is_block_diagonal, _is_quadratic
+
+    # single-mode oracle: an LC oscillator's ladder spacing is 1/sqrt(LC)
+    lc = library.lc_resonator().hamiltonian(ground="v1", canonical=True)
+    ev = lc.eigenenergies({"L": 2.0, "C": 3.0}, n_levels=4)
+    assert np.allclose(np.diff(ev), 1.0 / np.sqrt(6.0), atol=1e-6)
+
+    # dense quadratic multi-mode: gyrator-coupled oscillators -> Williamson path
+    c = Circuit()
+    c.add_capacitor("ca", "a", "g", C="C"); c.add_inductor("la", "a", "g", L="L")
+    c.add_capacitor("cb", "b", "g", C="C"); c.add_inductor("lb", "b", "g", L="L")
+    c.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G="G"); c.ground = "g"
+    rg = c.hamiltonian(strict=False, canonical=True)
+    p = {"C": 1.0, "L": 1.0, "G": 0.5}
+    assert not bracket_is_block_diagonal(rg, p) and _is_quadratic(sp.expand(rg.H.subs(p)))
+    ev = rg.eigenenergies(p, n_levels=5)
+    ev = ev - ev[0]
+    assert np.all(np.isreal(ev)) and ev[0] == 0 and np.all(np.diff(ev) >= -1e-9)
 
 
 def test_tidy_hamiltonian_collects_and_preserves_spectrum():

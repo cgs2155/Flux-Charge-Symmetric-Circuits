@@ -51,19 +51,23 @@ if __name__ == "__main__":
     show("Phase-slip qubit vs transmon (duality)", rq.H)
     print(f"  max |level difference| = {np.max(np.abs(ev_q-ev_t)):.2e}  (should be ~0)")
 
-    # --- zero-pi: a 3-mode protected qubit (one compact, two extended) ---
+    # --- zero-pi: a 3-mode protected qubit (symbolic H is correct) ---
+    from fluxcharge.canonicalize import CompactLatticeError
     zp = library.zero_pi()
     rz = zp.hamiltonian(ground="v1", strict=False, canonical=True)
     show("Zero-pi (3 modes)", rz.H)
     print("  modes (auto-classified):", [(str(m.flux), str(m.charge), m.kind)
                                           for m in rz.modes()])
-    # the node frame here makes the compact junction phase manifest (one PERIODIC
-    # mode), so it diagonalizes cleanly -- no hidden-compact obstruction
-    cut = {str(b): 8 for _a, b, _c in rz.conjugate_pairs}
-    evz = rz.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0},
-                           n_levels=4, cutoffs=cut)
-    print("  spectrum (cutoff 8/mode; raise cutoffs to converge further):",
-          np.round(evz - evz[0], 4))
+    # The symbolic Hamiltonian is correct, but 0-pi's reduced bracket is dense
+    # (the flux<->charge block is not block-diagonal) and nonlinear, so the
+    # per-pair operator basis would be wrong: the numeric layer guards rather
+    # than return an unjustified spectrum.  Use scqubits.ZeroPi or a grid (or the
+    # QuTiP operator export for a lattice-aware basis) for its numeric spectrum.
+    try:
+        rz.eigenenergies({"E_J": 10.0, "C_J": 1.0, "L": 1.0, "C": 1.0}, n_levels=4)
+    except CompactLatticeError as exc:
+        print("  numeric spectrum: guarded (dense multi-mode bracket) --",
+              str(exc).split(".")[0])
 
     # --- circulator: non-reciprocal, gyrator cross term ---
     cir = library.circulator()
