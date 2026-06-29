@@ -7,7 +7,7 @@ name = "fluxcharge"
 version = "0.2.0"
 description = "Symbolic Hamiltonians for lumped-element superconducting circuits in the flux-charge symmetric (LCG) formalism"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
     { name = "C. Salcedo" },
