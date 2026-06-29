@@ -336,6 +336,30 @@ ambiguous higher-degree monomial would warn. `S^1` compactness of a periodic
 mode follows from the flux appearing only inside a cosine and is a physical
 modelling choice (overridable via `mode_types=`).
 
+### Scope of the numeric spectrum (single-mode is exact; multi-mode is guarded)
+
+The per-mode operator basis (one charge per flux, each conjugate pair built as
+an independent canonical degree of freedom) is **exact** whenever the reduced
+symplectic bracket is *block-diagonal* in those pairs — which holds for **every
+single-mode circuit** (transmon, fluxonium, a quantum phase slip, and the
+manuscript's gyrator **circulator**). That is where fluxcharge's numeric spectrum
+is verified to machine precision, and those are exactly the gyrator / phase-slip
+circuits no other tool can quantize.
+
+A genuinely multi-mode circuit can instead have a **dense** flux↔charge bracket
+(each flux brackets several charges); there the per-pair basis would silently
+drop the cross-brackets, so the numeric layer **refuses** (`CompactLatticeError`)
+rather than return an unjustified number. Two things are still handled exactly:
+the **symbolic Hamiltonian is always correct**, and a purely **linear**
+multi-mode circuit (e.g. gyrator-coupled oscillators) is solved from its
+symplectic normal-mode (Williamson) frequencies via `eigenenergies`. For the
+numeric spectrum of a *nonlinear* multi-mode circuit — the **0-π qubit** is the
+canonical example — use a lattice-aware tool: `scqubits.ZeroPi`, a charge/flux
+grid, or fluxcharge's QuTiP operator export to build the basis you control.
+(General multi-mode canonicalization — a real symplectic Darboux step plus an
+integer lattice for compact modes — is the open frontier; the building blocks
+live in `fluxcharge/canonicalize.py`.)
+
 ---
 
 ## External flux and offset charge
@@ -386,10 +410,10 @@ res.eigenenergies(library.fluxonium().natural_params({"E_J": "5GHz", "C": "1GHz"
 `transmon`, `cooper_pair_box`, `fluxonium`, `lc_resonator`, the manuscript
 `circulator`, a quantum `phase_slip_qubit` (the LCG dual of the transmon), and
 the 3-mode `zero_pi` qubit are included (`library.CIRCUITS` lists them). Note
-`zero_pi` is multi-mode and reduces in *node* coordinates (three `EXTENDED`
-modes); its spectrum is the same as a symmetry-adapted treatment but converging
-it needs a generous `cutoffs=` (this is where tools using symmetry-adapted
-coordinates are more efficient). A guided
+`zero_pi`'s **symbolic** Hamiltonian is correct (three modes — one `PERIODIC`,
+two `EXTENDED`), but its reduced bracket is *dense* and nonlinear, so its
+**numeric** spectrum is guarded (`CompactLatticeError`) per the scope note above
+— use `scqubits.ZeroPi` or a grid for that. A guided
 [`examples/tutorial.ipynb`](examples/tutorial.ipynb) walks from a symbolic
 Hamiltonian to spectra, flux/charge sweeps, wavefunctions, the gyrator
 circulator, the phase-slip duality, and matrix elements / T1; the same content

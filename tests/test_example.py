@@ -623,6 +623,119 @@ def test_move_across_gyrator_carries_offset_charge():
         move_across_gyrator(A, "cb")
 
 
+def test_interactive_spectrum_slider_updates():
+    """The self-contained slider explorer builds for any circuit and recomputes
+    the spectrum when a parameter slider moves -- including the gyrator circuits
+    scqubits cannot represent.  Headless backend: no window, but the figure is
+    built and one update has run."""
+    _require_numpy()
+    import matplotlib
+    matplotlib.use("Agg")
+    from fluxcharge import library
+    from fluxcharge.interactive import spectrum_slider, parameter_symbols
+
+    r = library.transmon().hamiltonian(ground="v1")
+    assert sorted(map(str, parameter_symbols(r))) == ["C", "E_J"]
+    fig, sliders = spectrum_slider(r, {"E_J": (1, 30), "C": (0.2, 2.0)},
+                                   n_levels=4, show=False)
+    assert set(sliders) == {"E_J", "C"}
+    y_before = [ln.get_ydata()[0] for ln in fig.axes[0].lines]
+    sliders["E_J"].set_val(25.0)
+    y_after = [ln.get_ydata()[0] for ln in fig.axes[0].lines]
+    assert y_before != y_after            # the spectrum moved with the slider
+    assert y_after[0] == 0.0              # ground state is the reference
+
+    # a gyrator circuit (no scqubits equivalent) still gets a working explorer
+    rc = library.circulator().hamiltonian(ground="v1", open_loops="f4", canonical=True)
+    _, slc = spectrum_slider(rc, {"E_J": (1, 20), "G": (0.2, 0.9)},
+                             n_levels=3, cutoffs={"phi_v2": 60}, show=False)
+    assert "G" in slc
+
+
+def test_interactive_bias_sliders_and_vs_param():
+    """Bias-aware ranges + the evals/transitions-vs-parameter view.  An external
+    flux defaults to a 0..2*pi sweep and is auto-chosen as the x-axis; the
+    fluxonium spectrum then modulates with it.  An offset charge defaults to
+    0..1, and the transitions view plots f_{i,i+1}."""
+    _require_numpy()
+    import math
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    from fluxcharge import library
+    from fluxcharge.interactive import (spectrum_vs_param, _default_ranges,
+                                        is_flux_bias, is_charge_bias)
+
+    # bias-aware default spans: flux 0..2pi (sweet spot pi), charge 0..1
+    fx = library.fluxonium().hamiltonian(ground="v1", open_loops="f3")
+    dr = _default_ranges(fx)
+    assert is_flux_bias("phi_ext_f1") and not is_charge_bias("phi_ext_f1")
+    assert dr["phi_ext_f1"] == (0.0, 2 * math.pi, math.pi)
+
+    # auto-sweep picks the flux bias; the spectrum modulates with it
+    fig, sl = spectrum_vs_param(fx, ranges={"E_J": (1, 8, 5)},
+                                n_levels=3, cutoffs={"phi_v2": 60},
+                                npoints=15, show=False)
+    assert "phi_ext_f1" in sl                       # sweep slider present
+    y1 = fig.axes[0].lines[1].get_ydata()           # |1> curve over the flux sweep
+    assert np.nanmax(y1) - np.nanmin(y1) > 0.05     # it actually modulates
+
+    # transitions view: one fewer curve than levels (consecutive gaps)
+    cpb = library.cooper_pair_box().hamiltonian(ground="v1")
+    figc, _ = spectrum_vs_param(cpb, sweep="n_g_v2", quantity="transitions",
+                                ranges={"E_J": (1, 15, 1), "C": (0.3, 2, 1)},
+                                n_levels=3, cutoffs={"q_f1": 61}, npoints=15, show=False)
+    # 2 transition curves (f01, f12) for 3 levels; charge dispersion visible at E_J=1
+    curves = [ln for ln in figc.axes[0].lines if ln.get_label().startswith("$f")]
+    assert len(curves) == 2
+    assert np.nanmax(curves[0].get_ydata()) - np.nanmin(curves[0].get_ydata()) > 1e-3
+
+
+def test_interactive_transition_strength_weighting():
+    """weight_by colours each curve by a transition matrix element |<i|op|j>|.
+    The transmon charge matrix element grows with E_J/E_C, so the f01 strength
+    is non-trivial and varies over an E_J sweep.  Labels render the bias physics
+    names cleanly."""
+    _require_numpy()
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.collections import LineCollection
+    from fluxcharge import library
+    from fluxcharge.interactive import spectrum_vs_param, _pretty_label, _default_drive
+
+    assert _pretty_label("E_J") == "$E_{J}$"
+    assert "Phi" in _pretty_label("phi_ext_f1") and "ext" in _pretty_label("phi_ext_f1")
+    assert "n_{g}" in _pretty_label("n_g_v2")
+
+    tr = library.transmon().hamiltonian(ground="v1")
+    assert _default_drive(tr) == "q_f1"          # natural charge drive
+    fig, _ = spectrum_vs_param(tr, sweep="E_J", quantity="transitions", weight_by=True,
+                               ranges={"E_J": (1, 30, 12), "C": (0.3, 2, 1)},
+                               n_levels=3, cutoffs={"q_f1": 61}, npoints=15, show=False)
+    lcs = [c for c in fig.axes[0].collections if isinstance(c, LineCollection)]
+    assert len(lcs) == 2                          # f01, f12 as coloured collections
+    f01 = lcs[0].get_array()
+    assert np.nanmax(f01) - np.nanmin(f01) > 1e-2 # strength varies over the sweep
+
+
+def test_interactive_auto_cutoffs_basis_aware():
+    """auto_cutoffs picks the basis each mode is diagonalized in: a charge basis
+    for a PERIODIC (transmon-like) mode -- keyed by the charge, odd size -- and a
+    flux/Fock basis for an EXTENDED (fluxonium-like) mode, keyed by the flux."""
+    _require_numpy()
+    from fluxcharge import library
+    from fluxcharge.interactive import auto_cutoffs
+
+    tr = library.transmon(); tr.set_offset_charge("v2")
+    ct = auto_cutoffs(tr.hamiltonian(ground="v1", canonical=True))
+    assert set(ct) == {"q_f1"} and ct["q_f1"] % 2 == 1      # charge basis, odd
+
+    fx = auto_cutoffs(library.fluxonium().hamiltonian(
+        ground="v1", open_loops="f3", canonical=True))
+    assert set(fx) == {"phi_v2"}                            # flux/Fock basis
+
+
 def test_gyrator_terminated_capacitor_is_lc_mode():
     """A gyrator terminated by a capacitor presents an inductance L = C/G^2
     (Tellegen): with a shunt C0 the circuit is a single LC oscillator with
@@ -1134,25 +1247,78 @@ def test_library_circuits_reduce_and_diagonalize():
             pass  # multi-mode compact frame not auto-quantizable (0-pi) -- guarded
 
 
-def test_zero_pi_manifest_compact_mode():
-    """In its manifest-compact node frame (both junctions meeting at v3), the
-    0-pi qubit reduces to three modes -- one PERIODIC (the junction phase phi_v3
-    enters only cosines, with integer coefficients) and two EXTENDED -- so it
-    quantizes cleanly, with no hidden-compact / cos(theta/2) obstruction, and the
-    spectrum converges as the cutoff grows."""
+def test_zero_pi_dense_bracket_is_guarded():
+    """The 0-pi qubit's symbolic reduction is correct (three modes, two junction
+    cosines), but its reduced bracket is **dense** -- the flux<->charge block is
+    not block-diagonal in the conjugate pairs (cross-brackets ~0.67) -- and it is
+    nonlinear, so the per-pair operator basis would silently drop those
+    cross-brackets and give a wrong spectrum.  The numeric layer must refuse
+    (CompactLatticeError) rather than return an unjustified number; the symbolic
+    Hamiltonian is still the correct deliverable."""
     _require_numpy()
-    import numpy as np
     from fluxcharge import library
+    from fluxcharge.numerics import bracket_is_block_diagonal
+    from fluxcharge.canonicalize import CompactLatticeError
     res = library.zero_pi().hamiltonian(ground="v1", strict=False, canonical=True)
     assert res.complete
     assert sorted(m.kind for m in res.modes()) == ["extended", "extended", "periodic"]
     assert sum(1 for _ in res.H.atoms(sp.cos)) == 2          # two junctions
     p = {"E_J": 1.0, "C_J": 1.0, "L": 1.0, "C": 1.0}
-    e8 = res.eigenenergies(p, n_levels=5, cutoffs={str(b): 8 for _a, b, _c in res.conjugate_pairs})
-    e10 = res.eigenenergies(p, n_levels=5, cutoffs={str(b): 10 for _a, b, _c in res.conjugate_pairs})
-    e8, e10 = e8 - e8[0], e10 - e10[0]
-    assert np.all(np.isreal(e10))
-    assert np.allclose(e8, e10, atol=0.05)                    # converging
+    assert not bracket_is_block_diagonal(res, p)             # dense flux-charge block
+    with pytest.raises(CompactLatticeError):
+        res.eigenenergies(p, n_levels=5,
+                          cutoffs={str(b): 8 for _a, b, _c in res.conjugate_pairs})
+
+
+def test_commutators_report_full_bracket_matrix():
+    """commutators() reports the full f^{-1}, not a per-pair shortcut: a clean
+    single +/- i*hbar for a block-diagonal (single-mode) circuit, and the dense
+    cross-brackets for a multi-mode one.  For 0-pi a flux brackets several
+    charges, and its naive per-pair partner (phi_v3, q_f3) is actually decoupled
+    -- exactly the information that shows the per-pair basis cannot be used."""
+    _require_numpy()
+    import sympy as sp
+    from fluxcharge import library
+    hbar = sp.Symbol("hbar", positive=True)
+
+    tr = library.transmon().hamiltonian(ground="v1", canonical=True)
+    comm = tr.commutators(hbar)
+    assert len(comm) == 1 and sp.Abs(comm[0][2]) == hbar      # [phi, q] = +/- i*hbar
+
+    zp = library.zero_pi().hamiltonian(ground="v1", strict=False, canonical=True)
+    pairs = {(str(a), str(b)) for a, b, _ in zp.commutators(hbar)}
+    assert ("phi_v3", "q_f1") in pairs and ("phi_v3", "q_f5") in pairs  # dense cross-brackets
+    assert ("phi_v3", "q_f3") not in pairs   # naive per-pair partner is decoupled
+
+
+def test_quadratic_dense_circuit_uses_williamson():
+    """A purely *linear* multi-mode circuit with a dense bracket (here a gyrator
+    coupling two LC oscillators) is solved exactly from its symplectic normal-mode
+    (Williamson) frequencies -- the per-pair basis cannot, but the quadratic
+    spectrum is convention-free.  The single-mode LC check pins the frequency to
+    1/sqrt(LC)."""
+    _require_numpy()
+    import numpy as np
+    import sympy as sp
+    from fluxcharge import library, Circuit
+    from fluxcharge.numerics import bracket_is_block_diagonal, _is_quadratic
+
+    # single-mode oracle: an LC oscillator's ladder spacing is 1/sqrt(LC)
+    lc = library.lc_resonator().hamiltonian(ground="v1", canonical=True)
+    ev = lc.eigenenergies({"L": 2.0, "C": 3.0}, n_levels=4)
+    assert np.allclose(np.diff(ev), 1.0 / np.sqrt(6.0), atol=1e-6)
+
+    # dense quadratic multi-mode: gyrator-coupled oscillators -> Williamson path
+    c = Circuit()
+    c.add_capacitor("ca", "a", "g", C="C"); c.add_inductor("la", "a", "g", L="L")
+    c.add_capacitor("cb", "b", "g", C="C"); c.add_inductor("lb", "b", "g", L="L")
+    c.add_gyrator(("e1", "a", "g"), ("e2", "b", "g"), G="G"); c.ground = "g"
+    rg = c.hamiltonian(strict=False, canonical=True)
+    p = {"C": 1.0, "L": 1.0, "G": 0.5}
+    assert not bracket_is_block_diagonal(rg, p) and _is_quadratic(sp.expand(rg.H.subs(p)))
+    ev = rg.eigenenergies(p, n_levels=5)
+    ev = ev - ev[0]
+    assert np.all(np.isreal(ev)) and ev[0] == 0 and np.all(np.diff(ev) >= -1e-9)
 
 
 def test_tidy_hamiltonian_collects_and_preserves_spectrum():

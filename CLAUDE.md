@@ -53,7 +53,16 @@ wrong or incomplete Hamiltonian.
 - `gui.py` — themed Tkinter app (`fluxcharge-gui`). `compute()` is the headless
   core (testable). Renders schematic + Ĥ + commutators via matplotlib mathtext
   (cm fontset); operators are hatted, c-number params are not. "LaTeX (system
-  TeX)" toggle (usetex with mathtext fallback). "Dualize" button.
+  TeX)" toggle (usetex with mathtext fallback). "Dualize" button. "Sweep" (static
+  spectrum-vs-parameter) and **"Live"** (interactive `interactive.spectrum_vs_param`
+  embedded via `FigureCanvasTkAgg`, so the sliders are responsive in-app).
+- `interactive.py` — standalone interactive spectrum explorers on `matplotlib.
+  widgets.Slider` + the package's own `eigenenergies` (so they work for the
+  gyrator/QPS circuits scqubits can't represent; scqubits' own widgets are
+  Jupyter/ipywidgets-only). `spectrum_slider` (levels as rows) and
+  `spectrum_vs_param` (levels/transitions as curves vs one swept param; bias-aware
+  ranges — flux 0..2π, charge 0..1; auto-picks a bias axis; optional `weight_by`
+  matrix-element colouring). Accept `fig=` to embed in a Tk-bound figure.
 - `__main__.py` — CLI (`analyze`, `main`).
 
 ## Key validated results (keep these passing)
@@ -95,16 +104,27 @@ wrong or incomplete Hamiltonian.
   transmon/fluxonium/circulator spectra (tested).
 
 ## Known issues / open problems (IMPORTANT — read before trusting multi-mode output)
-- **UPDATE (0-π now diagonalizes):** `library.zero_pi` was changed to the node
-  frame in which its compact mode is *manifest* — both junctions meet at `v3`,
-  both inductors at `v1`, cross-caps on `v1-v3` and `v2-v4` (a co-author's
-  drawing). There the junction phase `phi_v3` enters only cosines with integer
-  coefficients, so the reduction yields one PERIODIC + two EXTENDED modes and the
-  spectrum diagonalizes cleanly — no hidden-compact / `cos(θ/2)` obstruction, no
-  `CompactLatticeError`. So the *specific* 0-π is fixed. What remains open is the
-  **general** problem: auto-finding such a frame for an *arbitrary* multi-mode
-  circuit whose compact mode is hidden by coordinate mixing (the items below).
-  The guard still protects circuits where no manifest-compact frame is supplied.
+- **UPDATE (numeric guard wired in; 0-π now GUARDS, honestly).** The numeric layer
+  now checks whether the reduced bracket is **block-diagonal in the conjugate
+  pairs** (`numerics.bracket_is_block_diagonal`). Block-diagonal ⇒ the per-pair
+  operator basis is exact ⇒ existing path (every single-mode circuit: transmon,
+  fluxonium, QPS, the circulator — verified to machine precision). **Dense**
+  bracket ⇒ per-pair would silently drop cross-brackets ⇒ `_OperatorBuilder`
+  raises `CompactLatticeError`. Two carve-outs: a purely **quadratic** dense
+  circuit (linear multi-mode, e.g. gyrator-coupled oscillators) is solved exactly
+  by `eigenenergies` via `canonicalize.symplectic_eigenvalues` (Williamson normal
+  modes, validated: LC → 1/√(LC)); and the symbolic H is always correct.
+  Consequence: **`library.zero_pi` is dense + nonlinear, so its numeric spectrum
+  now RAISES** — the earlier "manifest frame diagonalizes cleanly / [0,0.194,…]"
+  claim was the per-pair build silently dropping a ~0.67 cross-bracket and was
+  *unjustified* (the manifest frame fixed the mode *classification*, not the
+  dense canonicalization). For 0-π's number: scqubits.ZeroPi / a grid / QuTiP
+  export. `commutators()` now reports the **full** `i·ħ·(f⁻¹)` (all nonzero
+  brackets), so a dense circuit shows its real cross-brackets (e.g. 0-π's
+  `[φ_v3,q_f1]=2iħ/3`, while the naive per-pair partner `[φ_v3,q_f3]=0`); single-
+  mode is unchanged (one `±iħ`). `canonical()` now also updates
+  `symplectic_matrix` (`f→S⁻¹fS⁻¹`) so `f⁻¹` and the Williamson path stay
+  consistent with the rescaled coordinates.
 - **Multi-mode canonicalization is wrong when the reduced symplectic form is not
   block-diagonal.** `reduction._pairs_from_form` + `ReductionResult.canonical()`
   read each conjugate pair off a single entry of the reduced form (per graph

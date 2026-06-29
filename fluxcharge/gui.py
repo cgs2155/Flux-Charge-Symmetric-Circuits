@@ -573,6 +573,10 @@ def main():  # pragma: no cover - interactive
     # ---- body ----
     body = ttk.Frame(root, padding=12)
     body.pack(fill="both", expand=True)
+    # left = circuit input (netlist + builders); right = outputs (figure on top,
+    # and a bottom row sharing Numerical diagonalization with the details report,
+    # so the controls use the wide lower real estate instead of overflowing the
+    # narrow left column).
     left = ttk.Frame(body, width=470)
     left.pack(side="left", fill="y")
     left.pack_propagate(False)
@@ -582,7 +586,7 @@ def main():  # pragma: no cover - interactive
     # ---- netlist card ----
     nl_card = card(left, "Netlist")
     nl_card.pack(fill="both", expand=True)
-    netlist = tk.Text(nl_card, height=16, font=(MONO, 10), wrap="none")
+    netlist = tk.Text(nl_card, height=12, font=(MONO, 10), wrap="none")
     style_text(netlist)
     netlist.pack(fill="both", expand=True)
     netlist.insert("1.0", EXAMPLE)
@@ -683,44 +687,72 @@ def main():  # pragma: no cover - interactive
                           command=lambda: dualize())
     dual_btn.pack(fill="x", pady=(6, 0))
 
-    # ---- numerics card ----
-    num_card = card(left, "Numerical diagonalization")
-    num_card.pack(fill="x", pady=(10, 0))
+    # ---- right: outputs (figure on top; a bottom row shares the numerical
+    # diagonalization controls with the details report, using the wide lower
+    # real estate instead of overflowing the narrow left column) ----
+    fig = Figure(figsize=(6.8, 5.4))
+    fig.patch.set_facecolor(SURFACE)
+    ax_sch = fig.add_axes([0.03, 0.50, 0.94, 0.45]); ax_sch.axis("off")
+    ax_h = fig.add_axes([0.03, 0.27, 0.94, 0.20]); ax_h.axis("off")
+    ax_comm = fig.add_axes([0.03, 0.03, 0.94, 0.21]); ax_comm.axis("off")
+    ax_sch.text(0.5, 0.5, "press Generate", ha="center", va="center", color="#aab2bd")
+    right.rowconfigure(0, weight=1)
+    right.rowconfigure(1, weight=0, minsize=230)
+    right.columnconfigure(0, weight=1)
+
+    canvas_border = tk.Frame(right, bg=BORDER)
+    canvas_border.grid(row=0, column=0, sticky="nsew")
+    canvas = FigureCanvasTkAgg(fig, master=canvas_border)
+    canvas.get_tk_widget().pack(fill="both", expand=True, padx=1, pady=1)
+
+    # bottom row: [ numerical diagonalization | details ] side by side
+    bottom = ttk.Frame(right)
+    bottom.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+    bottom.rowconfigure(0, weight=1)
+    bottom.columnconfigure(0, weight=0, minsize=460)   # controls (natural width)
+    bottom.columnconfigure(1, weight=1)                # details (expand)
+
+    # ---- numerics card (bottom-left) ----
+    num_card = card(bottom, "Numerical diagonalization")
+    num_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
     num_card.columnconfigure(1, weight=1)
-    ttk.Label(num_card, text="params:  E_J=15, C=1",
-              style="Muted.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
+    num_card.columnconfigure(3, weight=1)
+    ttk.Label(num_card, text="params:", style="Muted.TLabel").grid(
+        row=0, column=0, sticky="w")
     params_entry = ttk.Entry(num_card)
-    params_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 4))
+    params_entry.grid(row=0, column=1, columnspan=3, sticky="ew", padx=(4, 4))
     params_entry.insert(0, "E_J=15, C=1, G=0.5")
-    ttk.Label(num_card, text="levels:", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 0))
-    levels_entry = ttk.Entry(num_card, width=5)
-    levels_entry.grid(row=2, column=1, sticky="w", pady=(4, 0))
-    levels_entry.insert(0, "6")
     diag_btn = ttk.Button(num_card, text=f"Diagonalize  ({_MOD}K)",
                           command=lambda: diagonalize())
-    diag_btn.grid(row=1, column=2, rowspan=2, sticky="ns", padx=(4, 0))
+    diag_btn.grid(row=0, column=4, sticky="ew", padx=(4, 0))
+
+    ttk.Label(num_card, text="levels:", style="Muted.TLabel").grid(
+        row=1, column=0, sticky="w", pady=(4, 0))
+    levels_entry = ttk.Entry(num_card, width=5)
+    levels_entry.grid(row=1, column=1, sticky="w", pady=(4, 0))
+    levels_entry.insert(0, "6")
+    ttk.Label(num_card, text="wavefn:", style="Muted.TLabel").grid(
+        row=1, column=2, sticky="e", pady=(4, 0))
+    wf_rep = tk.StringVar(value="auto")
+    ttk.OptionMenu(num_card, wf_rep, "auto", "auto", "flux", "charge").grid(
+        row=1, column=3, sticky="w", pady=(4, 0))
 
     units_var = tk.BooleanVar(value=False)
     ttk.Checkbutton(num_card, text="physical units (fF / nH / GHz → spectrum in GHz)",
-                    variable=units_var).grid(row=3, column=0, columnspan=3,
+                    variable=units_var).grid(row=2, column=0, columnspan=5,
                                              sticky="w", pady=(4, 0))
 
     ttk.Label(num_card, text="cutoffs:", style="Muted.TLabel").grid(
-        row=4, column=0, sticky="w", pady=(4, 0))
+        row=3, column=0, sticky="w", pady=(4, 0))
     cutoffs_entry = ttk.Entry(num_card)
-    cutoffs_entry.grid(row=4, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+    cutoffs_entry.grid(row=3, column=1, columnspan=4, sticky="ew", pady=(4, 0))
     cutoffs_entry.insert(0, "")     # e.g. "phi_v2=120, q_f1=61"; blank = defaults
-    ttk.Label(num_card, text="wavefunctions:", style="Muted.TLabel").grid(
-        row=5, column=0, sticky="w", pady=(4, 0))
-    wf_rep = tk.StringVar(value="auto")
-    ttk.OptionMenu(num_card, wf_rep, "auto", "auto", "flux", "charge").grid(
-        row=5, column=1, sticky="w", pady=(4, 0))
 
     ttk.Label(num_card, text="sweep:  parameter · from · to · points",
-              style="Muted.TLabel").grid(row=6, column=0, columnspan=3,
+              style="Muted.TLabel").grid(row=4, column=0, columnspan=5,
                                          sticky="w", pady=(8, 2))
     sweep_wrap = ttk.Frame(num_card)
-    sweep_wrap.grid(row=7, column=0, columnspan=3, sticky="ew")
+    sweep_wrap.grid(row=5, column=0, columnspan=5, sticky="ew")
     sweep_param = ttk.Entry(sweep_wrap, width=9); sweep_param.pack(side="left", padx=1)
     sweep_param.insert(0, "E_J")
     sweep_from = ttk.Entry(sweep_wrap, width=5); sweep_from.pack(side="left", padx=1)
@@ -733,26 +765,13 @@ def main():  # pragma: no cover - interactive
     ttk.OptionMenu(sweep_wrap, sweep_quantity, "levels",
                    "levels", "transitions", "anharmonicity").pack(side="left", padx=2)
     ttk.Button(sweep_wrap, text="Sweep", command=lambda: sweep_plot()).pack(
-        side="left", padx=(4, 0))
+        side="left", padx=(6, 2))
+    ttk.Button(sweep_wrap, text="Live (vs flux/charge)",
+               command=lambda: live_explore()).pack(side="left")
 
-    # ---- right: outputs ----
-    fig = Figure(figsize=(6.8, 5.4))
-    fig.patch.set_facecolor(SURFACE)
-    ax_sch = fig.add_axes([0.03, 0.50, 0.94, 0.45]); ax_sch.axis("off")
-    ax_h = fig.add_axes([0.03, 0.27, 0.94, 0.20]); ax_h.axis("off")
-    ax_comm = fig.add_axes([0.03, 0.03, 0.94, 0.21]); ax_comm.axis("off")
-    ax_sch.text(0.5, 0.5, "press Generate", ha="center", va="center", color="#aab2bd")
-    right.rowconfigure(0, weight=1)
-    right.rowconfigure(1, weight=0, minsize=150)
-    right.columnconfigure(0, weight=1)
-
-    canvas_border = tk.Frame(right, bg=BORDER)
-    canvas_border.grid(row=0, column=0, sticky="nsew")
-    canvas = FigureCanvasTkAgg(fig, master=canvas_border)
-    canvas.get_tk_widget().pack(fill="both", expand=True, padx=1, pady=1)
-
-    rep_card = card(right, "details")
-    rep_card.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+    # ---- details report (bottom-right) ----
+    rep_card = card(bottom, "details")
+    rep_card.grid(row=0, column=1, sticky="nsew")
     rep_vsb = ttk.Scrollbar(rep_card, orient="vertical")
     rep_vsb.pack(side="right", fill="y")
     report = tk.Text(rep_card, height=8, font=(MONO, 9), wrap="none", yscrollcommand=rep_vsb.set)
@@ -1258,6 +1277,182 @@ def main():  # pragma: no cover - interactive
                 side="bottom", anchor="e", padx=6, pady=6)
             c.draw()
             status.config(text=f"swept {param} ({len(vals)} pts)", foreground="#0a7d2c")
+
+        root.after(30, do)
+
+    def _ask_add_bias(ckt):
+        """No external bias on the circuit yet: let the user add one to sweep --
+        a gate charge on a node, or an external flux through a loop.  Returns
+        ("charge"|"flux", name) or None if cancelled."""
+        if not ckt.loops:
+            try:
+                ckt.infer_loops()
+            except Exception:
+                pass
+        ground = getattr(ckt, "ground", None)
+        opts = []   # (kind, name, label)
+        for v in ckt.vertices:
+            if v == ground:
+                continue
+            opts.append(("charge", v, f"gate charge  n_g  on node {v}"))
+        for lp in ckt.loops:
+            opts.append(("flux", lp, f"external flux  Φ_ext  through loop {lp}"))
+        if not opts:
+            status.config(text="no node/loop available to bias", foreground="#b26a00")
+            return None
+
+        win = tk.Toplevel(root); win.title("Sweep an external variable")
+        win.transient(root); win.configure(bg=BG)
+        ttk.Label(win, wraplength=420, style="Muted.TLabel",
+                  text="This circuit has no external bias to sweep yet. Add one to "
+                       "see the spectrum vs an external Noether variable (e.g. a "
+                       "transmon's gate charge, a fluxonium's loop flux):"
+                  ).grid(row=0, column=0, padx=12, pady=(12, 8), sticky="w")
+        labels = [lab for _k, _n, lab in opts]
+        cb = ttk.Combobox(win, values=labels, state="readonly", width=42)
+        cb.set(labels[0])
+        cb.grid(row=1, column=0, padx=12, pady=2, sticky="w")
+        holder = {"choice": None}
+
+        def on_ok():
+            i = labels.index(cb.get())
+            holder["choice"] = (opts[i][0], opts[i][1])
+            win.destroy()
+        btns = ttk.Frame(win); btns.grid(row=2, column=0, pady=12)
+        ttk.Button(btns, text="Sweep it", command=on_ok).pack(side="left", padx=5)
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="left", padx=5)
+        win.bind("<Return>", lambda _e: on_ok())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.grab_set(); root.wait_window(win)
+        return holder["choice"]
+
+    def _bias_label(name):
+        if name.startswith("phi_ext_"):
+            return f"loop flux  Φ_ext  through {name[len('phi_ext_'):]}   ({name})"
+        if name.startswith("n_g_"):
+            return f"gate charge  n_g  on {name[len('n_g_'):]}   ({name})"
+        return name
+
+    def _ask_choose_bias(biases):
+        """Pick which external variable to sweep when a circuit has several."""
+        win = tk.Toplevel(root); win.title("Choose the variable to sweep")
+        win.transient(root); win.configure(bg=BG)
+        ttk.Label(win, wraplength=420, style="Muted.TLabel",
+                  text="This circuit has several external variables. Sweep which "
+                       "one? (the others stay fixed at their set values)"
+                  ).grid(row=0, column=0, padx=12, pady=(12, 8), sticky="w")
+        labels = [_bias_label(b) for b in biases]
+        cb = ttk.Combobox(win, values=labels, state="readonly", width=44)
+        cb.set(labels[0]); cb.grid(row=1, column=0, padx=12, pady=2, sticky="w")
+        holder = {"pick": None}
+
+        def on_ok():
+            holder["pick"] = biases[labels.index(cb.get())]; win.destroy()
+        btns = ttk.Frame(win); btns.grid(row=2, column=0, pady=12)
+        ttk.Button(btns, text="Sweep it", command=on_ok).pack(side="left", padx=5)
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="left", padx=5)
+        win.bind("<Return>", lambda _e: on_ok())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.grab_set(); root.wait_window(win)
+        return holder["pick"]
+
+    def live_explore():
+        """Open an interactive window showing the spectrum vs an external Noether
+        variable (gate charge / loop flux) over its physical period, with live
+        sliders for the circuit parameters.  Embedded in Tk."""
+        from .interactive import (spectrum_vs_param, ranges_from_params,
+                                   parameter_symbols, is_flux_bias, is_charge_bias,
+                                   auto_cutoffs)
+        text = netlist.get("1.0", "end-1c")
+        try:
+            n = max(2, int(levels_entry.get() or 6))
+            base = _diag_params(text)
+            cutoffs = _cutoffs()
+            ckt = from_netlist(text); ckt.validate()
+            res = ckt.hamiltonian(ground=getattr(ckt, "ground", None),
+                                  open_loops=getattr(ckt, "open_loops", None) or None,
+                                  canonical=True)
+        except Exception as exc:
+            report_error(exc)
+            return
+
+        def _biases(r):
+            return [str(s) for s in parameter_symbols(r)
+                    if is_flux_bias(str(s)) or is_charge_bias(str(s))]
+
+        biases = _biases(res)
+        if not biases:
+            choice = _ask_add_bias(ckt)
+            if not choice:
+                return
+            kind, name = choice
+            try:
+                if kind == "charge":
+                    ckt.set_offset_charge(name)
+                else:
+                    ckt.set_flux_bias(name)
+                res = ckt.hamiltonian(ground=getattr(ckt, "ground", None),
+                                      open_loops=getattr(ckt, "open_loops", None) or None,
+                                      canonical=True)
+            except Exception as exc:
+                report_error(exc); return
+            biases = _biases(res)
+            if not biases:
+                status.config(text="could not add an external bias to sweep",
+                              foreground="#b26a00")
+                return
+
+        # choose the variable to sweep: the sweep box if it names a bias, else
+        # the only one, else ask which
+        want = sweep_param.get().strip()
+        if want in biases:
+            sweep = want
+        elif len(biases) == 1:
+            sweep = biases[0]
+        else:
+            sweep = _ask_choose_bias(biases)
+            if sweep is None:
+                return
+        quantity = sweep_quantity.get()
+        if quantity not in ("levels", "transitions"):
+            quantity = "levels"                     # 'anharmonicity' has no live view
+        # basis-aware default cutoffs (charge vs flux/Fock), user entries override
+        cut = dict(auto_cutoffs(res))
+        cut.update(cutoffs or {})
+        cutoffs = cut or None
+        ranges = ranges_from_params(res, base)
+        busy_on(f"sweeping {sweep}…")
+
+        def do():
+            win = tk.Toplevel(root)
+            win.title(f"fluxcharge — spectrum vs {sweep}")
+            win.configure(bg=SURFACE)
+            efig = Figure(figsize=(7.6, 5.2))
+            efig.patch.set_facecolor("white")
+            ecanvas = FigureCanvasTkAgg(efig, master=win)
+            ecanvas.get_tk_widget().pack(fill="both", expand=True, side="top")
+            try:
+                # spectrum vs the external bias (x-axis), live sliders for the
+                # circuit parameters only (the swept variable is the x-axis, so
+                # no redundant marker slider); coarse grid + no colouring -> fast
+                spectrum_vs_param(res, sweep=sweep, ranges=ranges, n_levels=n,
+                                  cutoffs=cutoffs, quantity=quantity, weight_by=False,
+                                  npoints=21, sweep_slider=False, fig=efig, show=False)
+            except Exception as exc:
+                busy_off(); win.destroy(); report_error(exc); return
+            busy_off()
+
+            def save_live():
+                path = filedialog.asksaveasfilename(
+                    parent=win, defaultextension=".png",
+                    filetypes=[("PNG", "*.png"), ("PDF", "*.pdf"), ("SVG", "*.svg")])
+                if path:
+                    efig.savefig(path, dpi=200, bbox_inches="tight")
+            ttk.Button(win, text="Save plot…", command=save_live).pack(
+                side="bottom", anchor="e", padx=6, pady=6)
+            ecanvas.draw()
+            status.config(text=f"spectrum vs {sweep} — drag a parameter slider",
+                          foreground="#0a7d2c")
 
         root.after(30, do)
 
