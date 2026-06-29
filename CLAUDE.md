@@ -12,7 +12,7 @@ automated vs. assumed matter more than convenience.** Never silently return a
 wrong or incomplete Hamiltonian.
 
 ## How to work in this repo
-- Source of truth: `fluxcharge/`. Tests: `tests/test_example.py` (run `pytest -q`; 17 tests, all passing).
+- Source of truth: `fluxcharge/`. Tests: `tests/test_example.py` (run `pytest -q`; 74 tests, all passing).
 - Reproduce the manuscript's worked example: `python examples/reproduce_manuscript.py` (asserts `H_package - H_published == 0`).
 - CLI: `fluxcharge circuit.txt` (also `--dual`, `-o out.png`, `--raw`, `--no-draw`). GUI: `fluxcharge-gui`.
 - Core deps (all required): sympy, schemdraw, matplotlib, networkx. Optional: numpy (numeric), pytest (dev).
@@ -215,4 +215,5 @@ wrong or incomplete Hamiltonian.
   circuits become drop-in) + cross-validation of spectra.
 - A true drag-and-drop canvas builder (the face-detection hook is now
   `infer_loops`; `to_networkx()` + `schematic(positions=)` remain the layout hooks).
-- LICENSE + CITATION.cff still have placeholders to finalize before release.
+- LICENSE + CITATION.cff are filled in; only the DOIs (Zenodo archive + paper)
+  remain as placeholders, pending the manuscript being posted.
