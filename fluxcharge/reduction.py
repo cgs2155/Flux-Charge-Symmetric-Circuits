@@ -279,6 +279,7 @@ class ReductionResult:
         H = self.H
         new_pairs = []
         notes = []
+        scale = {}        # coordinate -> factor by which it is rescaled (target := cs*target)
         for a, b, c in self.conjugate_pairs:
             cs = sp.simplify(c)
             if cs == 1 or cs == -1:
@@ -292,12 +293,24 @@ class ReductionResult:
             # the reduced symbol equals (canonical momentum)/c, so substitute
             H = sp.expand(H.subs(target, target / cs))
             new_pairs.append((keep, target, sp.Integer(1)))
+            scale[target] = cs
             notes.append(f"canonicalize: {target} := ({cs})*{target}")
         H = tidy_hamiltonian(H, [c for c in self.coordinates if H.has(c)])
+
+        # keep the reduced symplectic form consistent with the rescaled
+        # coordinates so f^{-1} (the brackets) and any numeric use stay correct:
+        # under xi_target -> cs*xi_target the form transforms as f -> S^{-1} f S^{-1}
+        # (diagonal S with S[target]=cs).  Without this, commutators() / the
+        # Williamson spectrum would read a stale form.
+        f = self.symplectic_matrix
+        if scale and f is not None:
+            Sinv = sp.diag(*[sp.Integer(1) / scale.get(c, 1) for c in self.coordinates])
+            f = sp.expand(Sinv * f * Sinv)
         return dataclasses.replace(
             self,
             H=H,
             conjugate_pairs=new_pairs,
+            symplectic_matrix=f,
             operations=list(self.operations) + notes,
         )
 
@@ -334,19 +347,33 @@ class ReductionResult:
     def commutators(self, hbar=None):
         """Canonical commutation relations implied by the reduced symplectic form.
 
-        For a conjugate pair with symplectic coefficient ``c`` the 2x2 block of
-        the reduced form is ``[[0, c], [-c, 0]]``; its inverse gives the Poisson
-        bracket ``{a, b} = -1/c`` and hence ``[a, b] = -i*hbar/c`` (Eq.
-        ``canonical`` of the manuscript).  After :meth:`canonical` every ``c`` is
-        +/-1, so each relation is ``+/- i*hbar``.  All brackets between different
-        pairs, and between the two members of different pairs, vanish.
+        The brackets are the **full** matrix ``[xi_i, xi_j] = i*hbar*(f^{-1})_ij``
+        (Eq. ``canonical`` of the manuscript), read off the *inverse* of the
+        reduced symplectic form ``f``.  For a single-mode circuit -- and any
+        circuit whose ``f`` is block-diagonal in the conjugate pairs -- this is
+        just one ``+/- i*hbar/c`` per pair (``+/- i*hbar`` after
+        :meth:`canonical`), with all cross-brackets zero.  For a genuinely
+        multi-mode circuit the flux<->charge block of ``f^{-1}`` is **dense**, so
+        a flux brackets several charges; those cross-brackets are real physics and
+        are reported here (the per-pair shortcut used to drop them).
 
-        Returns a list of ``(a, b, value)`` triples.
+        Returns a list of ``(a, b, value)`` triples for every distinct
+        coordinate pair with a nonzero bracket.
         """
         hbar = hbar if hbar is not None else sp.Symbol("hbar", positive=True)
+        coords = list(self.coordinates)
+        f = self.symplectic_matrix
+        # fall back to the per-pair reading if the form is unavailable
+        if f is None or not coords:
+            return [(a, b, sp.simplify(-sp.I * hbar / c))
+                    for a, b, c in self.conjugate_pairs]
+        Pi = sp.Matrix(f).inv()
         out = []
-        for a, b, c in self.conjugate_pairs:
-            out.append((a, b, sp.simplify(-sp.I * hbar / c)))
+        for i in range(len(coords)):
+            for j in range(i + 1, len(coords)):
+                val = sp.simplify(sp.I * hbar * Pi[i, j])
+                if val != 0:
+                    out.append((coords[i], coords[j], val))
         return out
 
     # ------------------------------------------------------------------

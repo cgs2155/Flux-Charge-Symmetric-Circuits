@@ -1270,6 +1270,27 @@ def test_zero_pi_dense_bracket_is_guarded():
                           cutoffs={str(b): 8 for _a, b, _c in res.conjugate_pairs})
 
 
+def test_commutators_report_full_bracket_matrix():
+    """commutators() reports the full f^{-1}, not a per-pair shortcut: a clean
+    single +/- i*hbar for a block-diagonal (single-mode) circuit, and the dense
+    cross-brackets for a multi-mode one.  For 0-pi a flux brackets several
+    charges, and its naive per-pair partner (phi_v3, q_f3) is actually decoupled
+    -- exactly the information that shows the per-pair basis cannot be used."""
+    _require_numpy()
+    import sympy as sp
+    from fluxcharge import library
+    hbar = sp.Symbol("hbar", positive=True)
+
+    tr = library.transmon().hamiltonian(ground="v1", canonical=True)
+    comm = tr.commutators(hbar)
+    assert len(comm) == 1 and sp.Abs(comm[0][2]) == hbar      # [phi, q] = +/- i*hbar
+
+    zp = library.zero_pi().hamiltonian(ground="v1", strict=False, canonical=True)
+    pairs = {(str(a), str(b)) for a, b, _ in zp.commutators(hbar)}
+    assert ("phi_v3", "q_f1") in pairs and ("phi_v3", "q_f5") in pairs  # dense cross-brackets
+    assert ("phi_v3", "q_f3") not in pairs   # naive per-pair partner is decoupled
+
+
 def test_quadratic_dense_circuit_uses_williamson():
     """A purely *linear* multi-mode circuit with a dense bracket (here a gyrator
     coupling two LC oscillators) is solved exactly from its symplectic normal-mode

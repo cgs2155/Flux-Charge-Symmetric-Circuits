@@ -119,8 +119,12 @@ wrong or incomplete Hamiltonian.
   claim was the per-pair build silently dropping a ~0.67 cross-bracket and was
   *unjustified* (the manifest frame fixed the mode *classification*, not the
   dense canonicalization). For 0-π's number: scqubits.ZeroPi / a grid / QuTiP
-  export. `commutators()`/`report()` are still per-pair (symbolic) and therefore
-  incomplete for a dense circuit — a known display caveat, not used numerically.
+  export. `commutators()` now reports the **full** `i·ħ·(f⁻¹)` (all nonzero
+  brackets), so a dense circuit shows its real cross-brackets (e.g. 0-π's
+  `[φ_v3,q_f1]=2iħ/3`, while the naive per-pair partner `[φ_v3,q_f3]=0`); single-
+  mode is unchanged (one `±iħ`). `canonical()` now also updates
+  `symplectic_matrix` (`f→S⁻¹fS⁻¹`) so `f⁻¹` and the Williamson path stay
+  consistent with the rescaled coordinates.
 - **Multi-mode canonicalization is wrong when the reduced symplectic form is not
   block-diagonal.** `reduction._pairs_from_form` + `ReductionResult.canonical()`
   read each conjugate pair off a single entry of the reduced form (per graph
