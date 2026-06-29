@@ -419,6 +419,21 @@ Hamiltonian to spectra, flux/charge sweeps, wavefunctions, the gyrator
 circulator, the phase-slip duality, and matrix elements / T1; the same content
 runs as [`examples/qubit_library.py`](examples/qubit_library.py).
 
+Four focused, runnable notebooks cover specific workflows:
+
+- [`examples/build_from_scratch.ipynb`](examples/build_from_scratch.ipynb) — the
+  `add_*` API and the netlist text format (interchangeable), optional gauge, and
+  drawing a schematic.
+- [`examples/qutip_export.ipynb`](examples/qutip_export.ipynb) — `to_qutip` then
+  QuTiP dynamics (spectrum cross-check, a resonant Rabi drive, a Lindblad decay)
+  on a quantum-phase-slip qubit scqubits cannot represent.
+- [`examples/duality.ipynb`](examples/duality.ipynb) — the full `dual` transform
+  (transmon ⇄ QPS, spectrum preserved to ~1e-15) and the **partial-dual move**
+  `move_across_gyrator` (a reciprocal block slid across a gyrator as its dual).
+- [`examples/scqubits_import.ipynb`](examples/scqubits_import.ipynb) —
+  `from_scqubits_yaml`, cross-check the spectrum against scqubits, then extend the
+  circuit past what scqubits can express.
+
 ### Exporting to QuTiP
 
 `result.to_qutip(params)` returns the Hamiltonian and the per-mode charge/flux

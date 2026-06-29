@@ -23,3 +23,6 @@ Thumbs.db
 
 # generated example output
 manuscript_circulator.png
+
+# notebook-generated schematic output
+examples/fluxonium_schematic.png
