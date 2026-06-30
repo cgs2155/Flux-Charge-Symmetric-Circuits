@@ -374,10 +374,18 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
                 A = P + base_nhat * off
                 B = Q + base_nhat * off
 
+            # Lead tap points are fixed by geometry: lead_A is the endpoint on
+            # the P/Sa side, lead_B the one on the Q/Sb side.  The gyrator flip
+            # below reorders only the element's own draw direction, never these,
+            # so the connecting stubs stay straight (this is what caused the
+            # "bowtie" tangle: A,B were reused for both the element and its
+            # leads, so flipping the crescent crossed the wires).
+            lead_A, lead_B = A, B
+
             # orient the half-gyrator crescent so it bulges toward its partner
-            # (the grey coupling line).  The crescent bulges 90 deg CCW from the
-            # draw direction A->B, so swap the endpoints when that points away
-            # from the partner -- this keeps it normal to the wire either way.
+            # (the grey coupling line) by choosing the draw direction.  The
+            # crescent bulges 90 deg CCW from the draw direction, and reversing
+            # it spans the same two points -- so leads attach to the same ends.
             if etype == "Gyrator":
                 nm = data["name"]
                 partner = gyr_partner.get(nm)
@@ -390,15 +398,15 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
                         A, B = B, A
 
             if style == "rung":
-                d += elm.Line().at(tuple(Sa)).to(tuple(A))
+                d += elm.Line().at(tuple(Sa)).to(tuple(lead_A))
                 _place(etype, A, B, param, data["name"])
-                d += elm.Line().at(tuple(B)).to(tuple(Sb))
+                d += elm.Line().at(tuple(lead_B)).to(tuple(Sb))
             else:
                 if off != 0:
-                    d += elm.Line().at(tuple(P)).to(tuple(A))
+                    d += elm.Line().at(tuple(P)).to(tuple(lead_A))
                 _place(etype, A, B, param, data["name"])
                 if off != 0:
-                    d += elm.Line().at(tuple(B)).to(tuple(Q))
+                    d += elm.Line().at(tuple(lead_B)).to(tuple(Q))
             if etype == "Gyrator":
                 gyr_port_centres[data["name"]] = 0.5 * (A + B)
             d += elm.Dot().at(tuple(P))
