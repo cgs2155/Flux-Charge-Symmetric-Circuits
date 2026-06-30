@@ -58,6 +58,7 @@ class Circuit:
         self._flux_bias: "OrderedDict[str, sp.Expr]" = OrderedDict()      # loop -> Phi_ext
         self._offset_charge: "OrderedDict[str, sp.Expr]" = OrderedDict()  # node -> n_g
         self._planar = None     # set by infer_loops(): True/False/None(unknown)
+        self.ground = None      # ground-net node (set by connect_to_ground / netlist)
 
     # ------------------------------------------------------------------
     # construction
@@ -142,6 +143,72 @@ class Circuit:
         for name, tokens in loops:
             self.add_loop(name, tokens)
         return self.loops
+
+    def connect_to_ground(self, *nodes):
+        """Tie one or more nodes to a common ground, merging them into one node.
+
+        A two-terminal element drawn as a dangling stub has a floating
+        (degree-1) terminal: no current flows through it, so it drops out of the
+        dynamics (and ``hamiltonian`` warns).  Call this to attach such stubs to
+        ground instead.  All the listed nodes -- plus the existing ground node,
+        if any -- collapse onto a single ground node (the ground net); edges,
+        loops and biases are relabelled onto it.
+
+        Grounding changes the graph, so the loops are re-derived and planarity is
+        re-checked: if the merged circuit stays **planar** the usual face
+        inference / ``schematic`` / ``dual`` still work; if grounding made it
+        **non-planar** that is reported (the Hamiltonian still reduces via a
+        cycle basis, but there is no planar schematic).  Returns ``self``.
+        """
+        import warnings
+        from .topology import _planar_faces
+
+        if not nodes:
+            raise ValueError("connect_to_ground needs at least one node")
+        unknown = [n for n in nodes if n not in self._vertices]
+        if unknown:
+            raise ValueError(f"unknown node(s) {unknown}")
+
+        # canonical ground: reuse the existing ground node if it is a vertex,
+        # else the first node given.  Everything else in the net merges onto it.
+        g = self.ground if self.ground in self._vertices else nodes[0]
+        group = set(nodes)
+        if self.ground in self._vertices:
+            group.add(self.ground)
+        group.discard(g)
+
+        if group:
+            shorted = []
+            for e in self._edges.values():
+                if e.tail in group:
+                    e.tail = g
+                if e.head in group:
+                    e.head = g
+                if e.tail == g and e.head == g:
+                    shorted.append(e.name)
+            for n in list(self._offset_charge):       # gate charge follows its node
+                if n in group:
+                    self._offset_charge[g] = self._offset_charge.pop(n)
+            # rebuild the vertex set from the relabelled edges (drops merged names)
+            self._vertices = OrderedDict()
+            for e in self._edges.values():
+                self._vertices.setdefault(e.tail, None)
+                self._vertices.setdefault(e.head, None)
+            if shorted:
+                warnings.warn(
+                    f"elements {shorted} now have both terminals on ground "
+                    "(shorted to it): they carry no dynamics.", stacklevel=2)
+
+        self.ground = g
+        # grounding changed the graph: re-derive loops and re-check planarity
+        self._loops.clear()
+        if _planar_faces(self) is None:
+            self._planar = False
+            warnings.warn(
+                "after grounding, the circuit is non-planar: the Hamiltonian "
+                "still reduces (via a cycle basis), but dual() and schematic() "
+                "need a planar embedding and will not work.", stacklevel=2)
+        return self
 
     # ------------------------------------------------------------------
     # external biases (nonzero Noether constants of the manuscript)
@@ -454,6 +521,23 @@ class Circuit:
         :class:`~fluxcharge.reduction.Reducer` directly for full manual control.
         """
         from .reduction import Reducer
+
+        # warn about floating (degree-1) terminals: such an element carries no
+        # current and silently drops out of the dynamics.  Use
+        # connect_to_ground(node) if it was meant to attach to ground.
+        deg = {v: 0 for v in self._vertices}
+        for e in self._edges.values():
+            deg[e.tail] += 1
+            deg[e.head] += 1
+        floating = [v for v, d in deg.items() if d == 1]
+        if floating:
+            import warnings
+            warnings.warn(
+                f"node(s) {floating} have a single edge (a floating terminal): "
+                "that element carries no current and drops out of the "
+                "Hamiltonian.  Use connect_to_ground(stub_node, other_node) to "
+                "join it to the node it should short to if that was intended.",
+                stacklevel=2)
 
         if not self._loops:
             self.infer_loops()      # loops are optional: derive them from the graph

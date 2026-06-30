@@ -23,6 +23,9 @@ wrong or incomplete Hamiltonian.
   JosephsonJunction(−E_J cos Φ, *inductive*), QuantumPhaseSlip(−E_S cos Q,
   *capacitive*), Gyrator(ordered edge pair, ratio G). Convention G₀=1, ħ=1.
 - `circuit.py` — `Circuit`: add_capacitor/inductor/josephson/qps/gyrator/loop;
+  `connect_to_ground(*nodes)` merges nodes into one ground node (so a dangling
+  stub becomes a real shunt) and re-checks planarity; `hamiltonian()` warns on
+  floating (degree-1) terminals that would silently drop out;
   builds incidence A (A[e,head]=+1, A[e,tail]=−1), loop matrix B (B[l,e]=±1),
   connection M=½B(P_C−P_I)A, antisymmetric Ω, Lagrangian L=½⟨x|Ω|ẋ⟩−E.
   `hamiltonian(ground=None, open_loops=None, keep=, eliminate=, strict=True, canonical=False)`.

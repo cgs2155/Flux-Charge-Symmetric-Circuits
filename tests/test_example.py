@@ -587,6 +587,51 @@ def test_move_across_gyrator_partial_retains_gyrator():
     assert np.allclose(gaps(A, p), gaps(B, p), atol=1e-9)
 
 
+def test_floating_terminal_warns_and_drops():
+    """A degree-1 (floating) terminal carries no current, so its element drops
+    out of the Hamiltonian -- and hamiltonian() warns rather than silently
+    omitting it."""
+    import warnings
+    from fluxcharge import Circuit
+    c = Circuit()
+    c.add_josephson("j", "v1", "v2", EJ="E_J")
+    c.add_capacitor("cs", "v1", "v2", C="C")
+    c.add_capacitor("cd", "v2", "v3", C="C_d")        # v3 is degree-1 -> floating
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        r = c.hamiltonian(strict=False)
+    assert any("floating" in str(x.message) for x in w)
+    assert "C_d" not in str(r.H)                       # the stub really is dropped
+
+
+def test_connect_to_ground_merges_and_participates():
+    """connect_to_ground merges nodes into one ground node so a stub becomes a
+    real element.  Tying the dangling cap's far node to the junction's reference
+    makes it a shunt: the circuit matches a transmon with C + C_d exactly."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import Circuit
+
+    def gaps(c, p):
+        r = c.hamiltonian(strict=False, canonical=True)
+        cut = {str(b): 60 for _a, b, _c in r.conjugate_pairs}
+        e = r.eigenenergies(p, n_levels=6, cutoffs=cut)
+        return np.asarray(e) - e[0]
+
+    A = Circuit()
+    A.add_josephson("j", "v1", "v2", EJ="E_J")
+    A.add_capacitor("cs", "v1", "v2", C="C")
+    A.add_capacitor("cd", "v2", "v3", C="C_d")
+    A.connect_to_ground("v1", "v3")               # join v3 to the reference v1
+    assert "v3" not in A.vertices and A.ground == "v1"
+
+    ref = Circuit()                                # transmon with a single C+C_d
+    ref.add_josephson("j", "v1", "v2", EJ="E_J")
+    ref.add_capacitor("cs", "v1", "v2", C="Csum")
+    p = {"E_J": 8.0, "C": 1.0, "C_d": 0.7}
+    assert np.allclose(gaps(A, p), gaps(ref, {"E_J": 8.0, "Csum": 1.7}), atol=1e-9)
+
+
 def test_move_across_gyrator_preserves_well_posedness_JJ_to_QPS():
     """Partial duality is a point transformation, so it preserves well-posedness
     (manuscript Sec. "Partial Dual Transformations").  A WELL-POSED junction via
