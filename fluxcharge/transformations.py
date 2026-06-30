@@ -216,19 +216,29 @@ def move_across_gyrator(circuit: Circuit, element_edges) -> Circuit:
     the gyration ratio carried by the conservation law ``phi_near = q_far / G``.
 
     ``element_edges`` is one edge name (single one-port) or a list of edge names
-    forming the block.  The block must be **all** the non-gyrative elements on
-    one gyrator port, in **parallel** (sharing the two port nodes).  Duality
-    swaps parallel for series, so a parallel block ``X_1 || X_2 || ...`` becomes
-    the **series chain** of duals ``dual(X_1) - dual(X_2) - ...`` strung between
-    the two nodes of the far port (introducing intermediate nodes).  Per element:
+    forming a **parallel** block (sharing the two port nodes) on one gyrator
+    port.  Duality swaps parallel for series, so a parallel block
+    ``X_1 || X_2 || ...`` becomes the **series chain** of duals
+    ``dual(X_1) - dual(X_2) - ...`` on the far port.  Per element:
 
     * capacitor ``C``  ->  inductor ``L = C / G**2``
     * inductor ``L``   ->  capacitor ``C = G**2 * L``
     * Josephson ``E_J`` <-> quantum phase slip ``E_S`` (cosine argument / G)
 
-    The source port then carries only the bare gyrator half-edge, so the gyrator
-    is removed by the open/closed-terminated deletion rule.  The move is a point
-    transformation: it **preserves the spectrum and well-posedness** (verified --
+    Two cases, by how much of the port you move:
+
+    * **Whole port** (every non-gyrative element on it) -- the source port
+      empties, so the gyrator is removed by the open/closed-terminated deletion
+      rule and the dual chain is strung between the far port's two nodes.
+    * **Strict subset** -- the port keeps elements, so the **gyrator is
+      retained**: its far half-edge is split (``far.tail -> m_0 -> ... ->
+      far.head``) and the moved duals are inserted in series along that split,
+      in series with the gyrator's far port.  This is the manuscript's general
+      "continuous families of partial dual circuits": you can put many elements
+      on both ports and slide any subset across, leaving the gyrator in place.
+
+    The move is a point transformation: it **preserves the spectrum and
+    well-posedness** in both cases (verified --
     e.g. a transmon ``JJ || C`` across a gyrator becomes a series ``QPS - L``
     with the same spectrum, and a well-posed input maps to a well-posed output;
     an ill-posed input -- a junction handed an effective *inductance*, say -- maps
@@ -285,17 +295,16 @@ def move_across_gyrator(circuit: Circuit, element_edges) -> Circuit:
             f"the block {element_edges} does not terminate a gyrator port "
             "(no gyrator half-edge shares its two nodes)")
 
-    # the block must be *all* non-gyrative elements on the port (so it empties)
+    # Move *all* non-gyrative elements on the port (the port empties, so the
+    # gyrator is consumed by the deletion rule) or only *some* of them (a strict
+    # subset: the port keeps elements, so the gyrator is **retained** and its far
+    # half-edge is split to carry the moved duals in series -- the manuscript's
+    # general "continuous families of partial dual circuits").
     on_port = [el for el in circuit._elements
                if not isinstance(el, Gyrator)
                and getattr(el, "_edge", None) is not None
                and frozenset((el._edge.tail, el._edge.head)) == port]
-    if set(map(id, on_port)) != set(map(id, Xs)):
-        extra = [e._edge.name for e in on_port if id(e) not in set(map(id, Xs))]
-        raise NotImplementedError(
-            "the move must carry the whole port across: the gyrator port also "
-            f"holds {extra}. Include them (keeping the gyrator for a partial "
-            "block is the not-yet-implemented general case).")
+    retain_gyrator = set(map(id, on_port)) != set(map(id, Xs))
 
     G = gyr.G
     if any(isinstance(X, (JosephsonJunction, QuantumPhaseSlip)) for X in Xs) \
@@ -317,13 +326,31 @@ def move_across_gyrator(circuit: Circuit, element_edges) -> Circuit:
             continue
         _readd_element(D, el)
 
-    # parallel block -> series chain of duals between the far port's two nodes,
-    # threading intermediate nodes m1, m2, ... for the interior junctions
-    t0, hN = far.tail, far.head
     n = len(Xs)
-    nodes = [t0] + [f"_m_{moved}_{i}" for i in range(1, n)] + [hN]
-    for i, X in enumerate(Xs):
-        _add_dual_oneport(D, X, X._edge.name, nodes[i], nodes[i + 1], G)
+    if not retain_gyrator:
+        # whole port moved: the gyrator is consumed (already dropped above), and
+        # the parallel block becomes a series chain of duals between the far
+        # port's two nodes, threading intermediate nodes for interior junctions.
+        t0, hN = far.tail, far.head
+        nodes = [t0] + [f"_m_{moved}_{i}" for i in range(1, n)] + [hN]
+        for i, X in enumerate(Xs):
+            _add_dual_oneport(D, X, X._edge.name, nodes[i], nodes[i + 1], G)
+    else:
+        # partial move: the gyrator stays, but its far half-edge is split off the
+        # far node and the moved duals are strung **in series** along the split
+        # (far.tail -> m_0 -> ... -> far.head), so the retained near elements
+        # still see the gyrator while the moved block reappears, dualized, in
+        # series with the gyrator's far port.  Verified spectrum-preserving.
+        ms = [f"_m_{moved}_{i}" for i in range(n)]
+        far_split = (far.name, far.tail, ms[0])      # far edge now ends at m_0
+        keep = (near.name, near.tail, near.head)      # near edge unchanged
+        if near is gyr.edge1:
+            D.add_gyrator(keep, far_split, G=gyr.G)
+        else:
+            D.add_gyrator(far_split, keep, G=gyr.G)
+        chain = ms + [far.head]                       # m_0 -> ... -> far.head
+        for i, X in enumerate(Xs):
+            _add_dual_oneport(D, X, X._edge.name, chain[i], chain[i + 1], G)
 
     D.ground = circuit.ground if circuit.ground in D.vertices else None
 

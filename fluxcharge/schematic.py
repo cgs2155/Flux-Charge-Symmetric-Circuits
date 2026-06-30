@@ -181,7 +181,13 @@ def _planar_layout(circuit, outer_loop, scale):
                     M[i, idx[w]] -= 1
                 else:
                     rhs[i] += pos[w]
-        sol = np.linalg.solve(M, rhs)
+        try:
+            sol = np.linalg.solve(M, rhs)
+        except np.linalg.LinAlgError:
+            # singular barycentric system (e.g. a gyrator couples two otherwise
+            # disconnected tanks, so the graph is disconnected): no planar
+            # straight-line layout -- let the caller fall back to spring layout.
+            return None
         for v in interior:
             pos[v] = sol[idx[v]]
     return pos
@@ -421,8 +427,12 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
             d += elm.Label().at(tuple(mid)).label(f"${_latexify(ratio)}$",
                                                   fontsize=10, color="#5b5b5b")
 
-    # node name labels
+    # node name labels (skip internal nodes introduced by transforms, named with
+    # a leading underscore -- e.g. the "_m_..." junctions a partial-dual move
+    # threads into a split gyrator edge; they are noise in a schematic)
     for name, p in pos.items():
+        if str(name).startswith("_"):
+            continue
         d += elm.Label().at((p[0], p[1] + 0.35)).label(name, fontsize=11)
 
     if file is not None:

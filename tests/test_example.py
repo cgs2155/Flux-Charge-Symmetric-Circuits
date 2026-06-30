@@ -539,10 +539,52 @@ def test_move_across_gyrator_multi_element_block():
     eb = rB.eigenenergies(p, n_levels=5, cutoffs=cutB); eb = eb - eb[0]
     assert np.allclose(ea, eb, atol=1e-3)
 
-    # a partial block (leaving an element behind on the port) is refused
-    import pytest as _pytest
-    with _pytest.raises(NotImplementedError):
-        move_across_gyrator(A, "jb")
+    # a PARTIAL move (leaving an element behind on the port) keeps the gyrator:
+    # the manuscript's general partial dual.  Move only the junction; the
+    # capacitor cj stays on the near port, so the gyrator is retained and the
+    # junction reappears as a QPS in series on the far port.  Spectrum preserved.
+    C = move_across_gyrator(A, "jb")
+    kindsC = sorted(type(e).__name__ for e in C._elements)
+    assert kindsC == ["Capacitor", "Capacitor", "Gyrator", "QuantumPhaseSlip"]
+    rC = C.hamiltonian(strict=False, canonical=True)
+    assert rC.complete
+    cutC = {str(b): 41 for _a, b, _c in rC.conjugate_pairs}
+    ec = rC.eigenenergies(p, n_levels=5, cutoffs=cutC); ec = ec - ec[0]
+    assert np.allclose(ea, ec, atol=1e-3)
+
+
+def test_move_across_gyrator_partial_retains_gyrator():
+    """Moving a STRICT SUBSET off a gyrator port keeps the gyrator (the
+    manuscript's general partial dual): many elements on both ports, slide one
+    across, gyrator stays.  A coupled 2-mode circuit with G != 1; the moved
+    capacitor becomes an inductor L = C/G**2 in series on the split far edge.
+    The move is a point transformation, so the spectrum is preserved exactly."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import Circuit, move_across_gyrator
+
+    def coupled():
+        c = Circuit()
+        c.add_capacitor("ca", "n1", "n2", C="Ca")   # near port: C_a || L_b
+        c.add_inductor("lb", "n1", "n2", L="Lb")
+        c.add_capacitor("cc", "n3", "n4", C="Cc")   # far port:  C_c || L_d
+        c.add_inductor("ld", "n3", "n4", L="Ld")
+        c.add_gyrator(("gn", "n1", "n2"), ("gf", "n3", "n4"), G=2)
+        c.ground = "n1"
+        return c
+
+    def gaps(ckt, p):
+        r = ckt.hamiltonian(strict=False, canonical=True)
+        assert r.complete
+        cut = {str(b): 25 for _a, b, _c in r.conjugate_pairs}
+        e = r.eigenenergies(p, n_levels=6, cutoffs=cut)
+        return np.asarray(e) - e[0]
+
+    p = {"Ca": 1.0, "Lb": 1.3, "Cc": 0.8, "Ld": 1.1}
+    A = coupled()
+    B = move_across_gyrator(A, "ca")           # move ONE of two; leave lb
+    assert sum(1 for e in B._elements if type(e).__name__ == "Gyrator") == 1
+    assert np.allclose(gaps(A, p), gaps(B, p), atol=1e-9)
 
 
 def test_move_across_gyrator_preserves_well_posedness_JJ_to_QPS():
