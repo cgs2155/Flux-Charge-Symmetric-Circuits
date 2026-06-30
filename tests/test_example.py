@@ -586,6 +586,22 @@ def test_move_across_gyrator_partial_retains_gyrator():
     assert sum(1 for e in B._elements if type(e).__name__ == "Gyrator") == 1
     assert np.allclose(gaps(A, p), gaps(B, p), atol=1e-9)
 
+    # a UNIFORM multi-element subset (two capacitors) also works: the duals form
+    # a series chain of inductors on the split far edge.  This exercises the
+    # reducer's simultaneous linear solve for the cyclic (retained-gyrator)
+    # constraints; spectrum still preserved exactly.
+    A3 = Circuit()
+    A3.add_capacitor("ca", "n1", "n2", C="Ca")
+    A3.add_inductor("lb", "n1", "n2", L="Lb")
+    A3.add_capacitor("ce", "n1", "n2", C="Ce")
+    A3.add_inductor("ld", "n3", "n4", L="Ld")
+    A3.add_gyrator(("gn", "n1", "n2"), ("gf", "n3", "n4"), G=2)
+    A3.ground = "n1"
+    p3 = {"Ca": 1.0, "Lb": 1.3, "Ce": 0.7, "Ld": 1.1}
+    B3 = move_across_gyrator(A3, ["ca", "ce"])   # move two caps; leave lb
+    assert sum(1 for e in B3._elements if type(e).__name__ == "Gyrator") == 1
+    assert np.allclose(gaps(A3, p3), gaps(B3, p3), atol=1e-9)
+
 
 def test_floating_terminal_warns_and_drops():
     """A degree-1 (floating) terminal carries no current, so its element drops

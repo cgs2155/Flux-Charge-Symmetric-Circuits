@@ -801,20 +801,57 @@ class Reducer:
 
         # A constraint right-hand side that still references an eliminated
         # coordinate after the fixed-point sweep means the eliminations are
-        # mutually circular.  When that loop passes through a transcendental
-        # (a JJ/QPS cosine coupled by a gyrator) it is a self-consistency
-        # equation x = f(sin x) with no closed form -- substituting it forever
-        # nests sin(sin(...)).  Refuse instead of returning that nested junk.
+        # mutually circular.  Two ways that happens:
+        #
+        #  * **Linear cycle** -- e.g. a *retained* gyrator across a series chain
+        #    of (dual) inductors/capacitors: the constraints reference each other
+        #    linearly, so back-substitution diverges (each pass amplifies the
+        #    coefficients) even though the system has a perfectly good closed
+        #    form.  Solve the original constraints *simultaneously* as one linear
+        #    system instead of iterating.
+        #  * **Transcendental cycle** -- the loop passes through a JJ/QPS cosine
+        #    coupled by a gyrator: a self-consistency x = f(sin x) with no closed
+        #    form (iterating nests sin(sin(...))).  `linear_eq_to_matrix` rejects
+        #    it, so we fall through and refuse rather than return nested junk.
         circular = {c: e for c, e in elim.items() if e.free_symbols & (elim_coords - {c})}
         if circular:
+            coords = [c for c, _ in self._constraints]
+            eqs = [sp.expand(c - e) for c, e in self._constraints]
+            solved = None
+            try:
+                Amat, bvec = sp.linear_eq_to_matrix(eqs, coords)
+                sol = sp.linsolve((Amat, bvec), coords)
+            except Exception:
+                sol = None
+            if sol:
+                tup = next(iter(sol))
+                cand = OrderedDict((c, sp.expand(v)) for c, v in zip(coords, tup))
+                # accept only a full closed-form resolution (no eliminated
+                # coordinate, and no leftover free parameter, on any RHS)
+                if all(not v.free_symbols & elim_coords for v in cand.values()):
+                    solved = cand
+            if solved is not None:
+                return solved
             offenders = ", ".join(f"{c} = {e}" for c, e in circular.items())
+            # honest diagnosis: does the cycle actually pass through a cosine?
+            transcendental = any(
+                c in f.free_symbols
+                for f in self.L.atoms(sp.cos, sp.sin) for c in elim_coords)
+            if transcendental:
+                raise ReductionError(
+                    "the constraint eliminations are mutually circular and do "
+                    "not close in elementary form (a gyrator coupling a nonlinear "
+                    f"element gives a transcendental self-consistency): {offenders}. "
+                    "This is the gyrator + nonlinearity limitation; supply a "
+                    "loop/gauge frame in which the nonlinear coordinate survives, "
+                    "or reduce a reciprocal equivalent.")
             raise ReductionError(
-                "the constraint eliminations are mutually circular and do not "
-                "close in elementary form (a gyrator coupling a nonlinear "
-                f"element gives a transcendental self-consistency): {offenders}. "
-                "This is the gyrator + nonlinearity limitation; supply a "
-                "loop/gauge frame in which the nonlinear coordinate survives, or "
-                "reduce a reciprocal equivalent.")
+                "the constraint eliminations form a degenerate linear cycle that "
+                f"this reducer cannot resolve to a unique elimination: {offenders}. "
+                "This arises for a retained gyrator across a *mixed* L/C series "
+                "chain (a partial move of unlike elements); move a uniform block "
+                "(all capacitors or all inductors), or move the whole port across "
+                "so the gyrator is removed.")
         return elim
 
     def _reduced_lagrangian(self) -> sp.Expr:

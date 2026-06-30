@@ -236,6 +236,11 @@ def move_across_gyrator(circuit: Circuit, element_edges) -> Circuit:
       in series with the gyrator's far port.  This is the manuscript's general
       "continuous families of partial dual circuits": you can put many elements
       on both ports and slide any subset across, leaving the gyrator in place.
+      A single element, or a *uniform* block (all capacitors, or all inductors),
+      reduces cleanly.  A subset of *unlike* elements (capacitors and inductors
+      together) leaves a retained gyrator across a mixed L/C series chain whose
+      reduction is a degenerate linear cycle this reducer does not yet resolve:
+      it raises ``ReductionError`` -- move a uniform block, or the whole port.
 
     The move is a point transformation: it **preserves the spectrum and
     well-posedness** in both cases (verified --
