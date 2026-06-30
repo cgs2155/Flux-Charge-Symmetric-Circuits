@@ -279,6 +279,36 @@ def draw_schematic(circuit, file: Optional[str] = None, layout: str = "auto",
     QPS = _qps_element()
     HalfGyrator = _half_gyrator_element()
 
+    # Series-chain nodes threaded in by a transform (named "_...", e.g. the
+    # "_m_..." junction a partial-dual move inserts when it splits a gyrator's
+    # far edge) are placed by the barycentric solve at the midpoint of their two
+    # neighbours -- i.e. exactly on the chord between them, where the series
+    # branch collides with any parallel element on that same node pair.  Bow each
+    # such degree-2 node off that chord (perpendicular, on the side toward the
+    # layout centroid -- the parallel siblings already bow *outward*, so this
+    # separates the series detour from them).
+    if len(pos) > 2:
+        nbr: Dict[str, set] = {}
+        for u, v, _k in G.edges(keys=True):
+            if u != v:
+                nbr.setdefault(u, set()).add(v)
+                nbr.setdefault(v, set()).add(u)
+        cen = np.mean(np.array(list(pos.values())), axis=0)
+        for nm in list(pos):
+            if not str(nm).startswith("_"):
+                continue
+            ns = nbr.get(nm, set())
+            if len(ns) != 2:
+                continue
+            p1, p2 = (pos[w] for w in ns)
+            midn = 0.5 * (p1 + p2)
+            t = p2 - p1
+            ln = float(np.linalg.norm(t)) or 1.0
+            perp = np.array([-t[1], t[0]]) / ln
+            if float(np.dot(midn - cen, perp)) > 0:   # point toward the centroid
+                perp = -perp
+            pos[nm] = midn + perp * (0.45 * scale)
+
     # group parallel edges (same unordered node pair)
     groups: Dict[frozenset, list] = {}
     for u, v, k in G.edges(keys=True):
