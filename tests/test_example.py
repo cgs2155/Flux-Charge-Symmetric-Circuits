@@ -1847,6 +1847,65 @@ def test_numerics_requires_complete_canonical():
         hamiltonian_matrix(bad, {})
 
 
+def test_observables_constitutive_forms():
+    """current()/voltage() give the textbook element laws in the reduced
+    coordinates: the Josephson supercurrent, the inductor current, and the
+    capacitor / phase-slip voltage."""
+    from fluxcharge import library
+    tr = library.transmon().hamiltonian(canonical=True)
+    assert tr.current("e1") == sp.sympify("E_J*sin(phi_v2)")     # JJ supercurrent
+    lc = library.lc_resonator().hamiltonian(canonical=True)
+    # inductor current phi/L and capacitor voltage q/C (up to the reduced names)
+    assert sp.simplify(lc.current("e1") - sp.sympify("phi_v2/L")) == 0
+    qp = library.phase_slip_qubit(charge_bias=False).hamiltonian(canonical=True)
+    assert qp.voltage("e1") == sp.sympify("E_S*sin(q_f1)")       # QPS voltage-charge law
+
+
+def test_observables_satisfy_kirchhoff():
+    """The current/voltage operators obey Kirchhoff's laws: the incidence-
+    weighted currents vanish at every node (KCL) and the loop-weighted voltages
+    vanish around every loop (KVL) -- a strong internal consistency check."""
+    from fluxcharge import library
+    for make in (library.lc_resonator, library.transmon, library.fluxonium,
+                 lambda: library.phase_slip_qubit(charge_bias=False)):
+        ckt = make()
+        r = ckt.hamiltonian(canonical=True)
+        A, B = ckt.incidence_matrix(), ckt.orientation_matrix()
+        eidx, vidx, lidx = ckt._eidx(), ckt._vidx(), ckt._lidx()
+        for v in ckt.vertices:
+            kcl = sum(A[eidx[e], vidx[v]] * r.current(e) for e in ckt.edges)
+            assert sp.simplify(kcl) == 0
+        for l in ckt.loops:
+            kvl = sum(B[lidx[l], eidx[e]] * r.voltage(e) for e in ckt.edges)
+            assert sp.simplify(kvl) == 0
+
+
+def test_observables_numeric_and_bias_and_gyrator_guard():
+    """Numeric matrix elements of a current operator are finite and have the
+    expected parity structure; a flux bias enters the Josephson current through
+    H; and a gyrator edge (no one-port law) is refused."""
+    _require_numpy()
+    import numpy as np
+    from fluxcharge import library
+
+    tr = library.transmon().hamiltonian(canonical=True)
+    me = tr.matrix_elements(tr.current("e1"), {"C": 1.0, "E_J": 10.0},
+                            n_levels=4, cutoffs={"phi_v2": 60})
+    assert np.isfinite(me).all()
+    assert np.allclose(np.diag(me), 0, atol=1e-6)     # <n|sin(phi)|n> = 0 by parity
+    assert abs(me[0, 1]) > 1e-3                        # 0-1 transition is allowed
+
+    # flux bias: the biased phase appears in the junction current (via H)
+    fx = library.fluxonium().hamiltonian(canonical=True)
+    assert fx.current("e1").has(sp.Symbol("phi_ext_f1"))
+
+    # a gyrator edge is not a one-port -> refused, not silently wrong
+    import pytest as _pt
+    cir = library.circulator().hamiltonian(ground="v1", open_loops="f4", canonical=True)
+    with _pt.raises(ValueError):
+        cir.current("e4")          # e4 is a gyrator half-edge
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

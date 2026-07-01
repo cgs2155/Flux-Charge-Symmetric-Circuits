@@ -529,15 +529,22 @@ class _OperatorBuilder:
                 f"may only appear inside a cosine)")
         raise NotImplementedError(f"cannot evaluate factor {factor!r}")
 
-    def matrix(self):
-        """The (Hermitized) Hamiltonian matrix."""
+    def operator(self, expr, what="operator"):
+        """Weyl-Hermitized operator matrix for a (parameter-substituted)
+        expression in the reduced coordinates.
+
+        This is the same construction the Hamiltonian uses, factored out so
+        observables (currents, voltages) build on identical machinery -- an
+        expression in the mode operators, cosines exact via displacement, then
+        symmetrized.  *what* only labels the diagnostics.
+        """
         np = self.np
-        H = np.zeros((self.dim_total, self.dim_total), dtype=complex)
+        M = np.zeros((self.dim_total, self.dim_total), dtype=complex)
         # macOS's Accelerate BLAS raises spurious fp flags from matmul on arrays
         # with zeros; the results are correct, so silence them and assert finite.
         max_noncommuting = 0
         with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-            for term in sp.Add.make_args(self.Hnum):
+            for term in sp.Add.make_args(sp.expand(expr)):
                 scalar = 1.0 + 0j
                 opmat = np.eye(self.dim_total, dtype=complex)
                 n_ops = 0
@@ -548,25 +555,29 @@ class _OperatorBuilder:
                         opmat = opmat @ self._factor_matrix(factor)
                         n_ops += factor.as_base_exp()[1] if factor.is_Pow else 1
                 max_noncommuting = max(max_noncommuting, n_ops)
-                H = H + scalar * opmat
-        if not np.isfinite(H).all():
+                M = M + scalar * opmat
+        if not np.isfinite(M).all():
             raise FloatingPointError(
-                "Hamiltonian matrix contains non-finite entries; check parameters "
+                f"{what} matrix contains non-finite entries; check parameters "
                 "and basis cutoffs.")
-        # Hermitize.  For a Hamiltonian that is at most quadratic in the
-        # coordinates (plus exact cosines) -- the generic LCG case -- this is the
-        # unique Weyl ordering and is exact, including a gyrator's bilinear cross
-        # term (phi*q + q*phi)/2.  A genuine ordering ambiguity only appears for a
+        # Hermitize.  For an expression at most quadratic in the coordinates
+        # (plus exact cosines) -- the generic LCG case -- this is the unique Weyl
+        # ordering and is exact, including a gyrator's bilinear cross term
+        # (phi*q + q*phi)/2.  A genuine ordering ambiguity only appears for a
         # monomial of degree >= 3 in non-commuting coordinates, which we flag.
         if max_noncommuting >= 3:
-            anti = np.linalg.norm(H - H.conj().T)
-            if anti > 1e-9 * max(np.linalg.norm(H), 1.0):
+            anti = np.linalg.norm(M - M.conj().T)
+            if anti > 1e-9 * max(np.linalg.norm(M), 1.0):
                 warnings.warn(
-                    f"Hamiltonian has a degree-{max_noncommuting} monomial in "
+                    f"{what} has a degree-{max_noncommuting} monomial in "
                     "non-commuting coordinates; its operator ordering is ambiguous "
-                    "and has been Weyl-symmetrized. Verify against result.H.",
+                    "and has been Weyl-symmetrized. Verify against the expression.",
                     stacklevel=2)
-        return 0.5 * (H + H.conj().T)
+        return 0.5 * (M + M.conj().T)
+
+    def matrix(self):
+        """The (Hermitized) Hamiltonian matrix."""
+        return self.operator(self.Hnum, what="Hamiltonian")
 
 
 # ----------------------------------------------------------------------

@@ -60,20 +60,28 @@ def operator_matrix(result, coordinate, params=None, cutoffs=None,
     return builder.op[sym]
 
 
-def matrix_elements(result, coordinate, params=None, n_levels=6, cutoffs=None,
+def matrix_elements(result, observable, params=None, n_levels=6, cutoffs=None,
                     offsets=None, mode_types=None):
-    """The ``n_levels x n_levels`` matrix of ``<i|coordinate|j>`` (complex).
+    """The ``n_levels x n_levels`` matrix of ``<i|observable|j>`` (complex).
 
-    *coordinate* is a charge (``"q_f1"``) or extended flux (``"phi_v2"``) symbol.
+    *observable* is a single coordinate (a charge ``"q_f1"`` or extended flux
+    ``"phi_v2"``) or, more generally, any expression in the reduced coordinates
+    -- e.g. a current or voltage operator from :mod:`fluxcharge.observables`
+    (``result.current(edge)`` / ``result.voltage(...)``).
     """
     np = _np()
     builder, _, v = _solve(result, params, n_levels, cutoffs, offsets, mode_types)
-    sym = sp.sympify(coordinate)
-    if sym not in builder.op:
-        raise ValueError(
-            f"{sym} has no bare operator; available: {sorted(map(str, builder.op))}")
+    obs = sp.sympify(observable)
+    # a bare coordinate uses its prebuilt operator (fast path); any other
+    # expression (e.g. a current/voltage carrying parameters like E_J) has its
+    # parameters substituted, then is assembled with the same Weyl-Hermitized
+    # construction as H
+    if obs in builder.op:
+        A = builder.op[obs]
+    else:
+        A = builder.operator(sp.expand(obs.subs(builder.params)), what="observable")
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-        return v.conj().T @ builder.op[sym] @ v
+        return v.conj().T @ A @ v
 
 
 def transition_sensitivity(result, bias, params, levels=(0, 1), delta=1e-4,

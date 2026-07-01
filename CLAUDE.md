@@ -49,6 +49,16 @@ wrong or incomplete Hamiltonian.
   e2 a b [ratio]`, `loop name +e1 -e2 ...`, `ground node`, `open loop`, `title`.
 - `transformations.py` — `dual(circuit)`: the LCG duality transform
   (φ↔q, A↔Bᵀ so vertices↔faces, C↔L, JJ↔QPS value-preserved, G→−1/G). Involution.
+- `observables.py` — `current(result, edge)` / `voltage(result, edge|a,b)` (also
+  `ReductionResult.current`/`.voltage`): branch current/voltage operators in the
+  reduced coordinates. Current = constitutive `∂E/∂Φ` for inductive elements
+  (Φ/L, E_J sinΦ), `−{Q_e,H}` for capacitive; voltage = constitutive `∂E/∂Q` for
+  capacitive (Q/C, E_S sinQ), `−{Φ_e,H}` for inductive; node voltage
+  `{φ_a−φ_b,H}`. The EOM bracket `{X,H}=∇Xᵀf⁻¹∇H` reuses the same symplectic form
+  `commutators()` reports; biases flow in through H. Verified: KCL closes at
+  every node and KVL around every loop. Feed the operator to `matrix_elements`
+  for numeric values (it now accepts any expression, not just a bare coordinate).
+  One-ports only — a gyrator edge raises (no one-port I–V law). Natural units.
 - `schematic.py` — planar schemdraw drawing. Half-gyrator crescent (normal to
   wire, faces partner). QPS = box with center line **normal to the wire**.
   Outer face auto-detected deterministically (largest face, fewest gyrator edges,

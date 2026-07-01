@@ -249,6 +249,8 @@ class ReductionResult:
     eliminated: Dict[sp.Symbol, sp.Expr] = field(default_factory=dict)
     lagrangian_reduced: Optional[sp.Expr] = None
     operations: List[str] = field(default_factory=list)
+    circuit: object = None       # source circuit (for current()/voltage())
+    rescaling: Dict[sp.Symbol, sp.Expr] = field(default_factory=dict)  # {coord: cs} from canonical()
 
     def __repr__(self):
         flag = "" if self.complete else " [INCOMPLETE]"
@@ -312,6 +314,7 @@ class ReductionResult:
             conjugate_pairs=new_pairs,
             symplectic_matrix=f,
             operations=list(self.operations) + notes,
+            rescaling={**self.rescaling, **scale},   # coords rescaled here (for observables)
         )
 
     def report(self) -> str:
@@ -435,6 +438,20 @@ class ReductionResult:
         :func:`fluxcharge.coherence.matrix_elements`."""
         from .coherence import matrix_elements
         return matrix_elements(self, coordinate, params, n_levels, **kw)
+
+    def current(self, edge):
+        """Symbolic current operator through the element on *edge*; see
+        :func:`fluxcharge.observables.current`.  Feed it to
+        :meth:`matrix_elements` for numeric values."""
+        from .observables import current
+        return current(self, edge)
+
+    def voltage(self, node_or_edge, node_b=None):
+        """Symbolic voltage operator -- across an element (``voltage(edge)``) or
+        between two nodes (``voltage(a, b)``); see
+        :func:`fluxcharge.observables.voltage`."""
+        from .observables import voltage
+        return voltage(self, node_or_edge, node_b)
 
     def transition_sensitivity(self, bias, params, levels=(0, 1), **kw):
         """``d f_ij/d(bias)`` and its second derivative; see
@@ -921,4 +938,5 @@ class Reducer:
             eliminated=dict(self._eliminated),
             lagrangian_reduced=L_red,
             operations=list(self._ops),
+            circuit=self.circuit,
         )
