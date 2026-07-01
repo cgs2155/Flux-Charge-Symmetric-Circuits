@@ -1866,24 +1866,28 @@ def test_observables_satisfy_kirchhoff():
     weighted currents vanish at every node (KCL) and the loop-weighted voltages
     vanish around every loop (KVL) -- a strong internal consistency check."""
     from fluxcharge import library
-    for make in (library.lc_resonator, library.transmon, library.fluxonium,
-                 lambda: library.phase_slip_qubit(charge_bias=False)):
+    cases = [(library.lc_resonator, {}), (library.transmon, {}),
+             (library.fluxonium, {}),
+             (lambda: library.phase_slip_qubit(charge_bias=False), {}),
+             (library.circulator, dict(ground="v1", open_loops="f4"))]  # non-reciprocal
+    for make, kw in cases:
         ckt = make()
-        r = ckt.hamiltonian(canonical=True)
+        r = ckt.hamiltonian(canonical=True, **kw)
         A, B = ckt.incidence_matrix(), ckt.orientation_matrix()
         eidx, vidx, lidx = ckt._eidx(), ckt._vidx(), ckt._lidx()
-        for v in ckt.vertices:
+        for v in ckt.vertices:                       # KCL, incl. gyrator half-edges
             kcl = sum(A[eidx[e], vidx[v]] * r.current(e) for e in ckt.edges)
             assert sp.simplify(kcl) == 0
-        for l in ckt.loops:
+        for l in ckt.loops:                          # KVL
             kvl = sum(B[lidx[l], eidx[e]] * r.voltage(e) for e in ckt.edges)
             assert sp.simplify(kvl) == 0
 
 
-def test_observables_numeric_and_bias_and_gyrator_guard():
+def test_observables_numeric_bias_and_gyrator_current():
     """Numeric matrix elements of a current operator are finite and have the
     expected parity structure; a flux bias enters the Josephson current through
-    H; and a gyrator edge (no one-port law) is refused."""
+    H; and a gyrator half-edge carries a current (= -G x partner voltage) that
+    keeps KCL closed on the non-reciprocal circulator."""
     _require_numpy()
     import numpy as np
     from fluxcharge import library
@@ -1899,11 +1903,10 @@ def test_observables_numeric_and_bias_and_gyrator_guard():
     fx = library.fluxonium().hamiltonian(canonical=True)
     assert fx.current("e1").has(sp.Symbol("phi_ext_f1"))
 
-    # a gyrator edge is not a one-port -> refused, not silently wrong
-    import pytest as _pt
+    # a gyrator half-edge now carries a well-defined current (I = -G V_partner)
     cir = library.circulator().hamiltonian(ground="v1", open_loops="f4", canonical=True)
-    with _pt.raises(ValueError):
-        cir.current("e4")          # e4 is a gyrator half-edge
+    assert cir.current("e4") != 0
+    assert cir.current("e1") == sp.sympify("E_J*sin(phi_v2)")   # JJ supercurrent intact
 
 
 if __name__ == "__main__":

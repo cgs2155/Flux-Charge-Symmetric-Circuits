@@ -480,28 +480,32 @@ add gyrators and quantum phase slips, which it has no element for.
 ### Branch currents and voltages
 
 `result.current(edge)` and `result.voltage(edge)` / `result.voltage(a, b)`
-return the branch **current** and **voltage** operators, derived from `H` and the
-circuit graph. Currents use the constitutive law for inductive elements (the
-inductor current `Φ/L`, the Josephson supercurrent `E_J sin Φ`) and the
-displacement current `d Q_e/dt = {Q_e, H}` for capacitive ones; voltages are the
-dual (`Q/C`, `E_S sin Q` across capacitive elements, `{Φ_e, H}` across inductive
-ones), and `voltage(a, b)` is the node-to-node voltage `V_a − V_b`. The
-equation-of-motion pieces use the reduced symplectic bracket that
-`result.commutators()` reports, and external biases enter through `H` — so a
-flux-biased junction's current carries the biased phase automatically. The
-operators satisfy Kirchhoff's laws (currents sum to zero at every node, voltages
-around every loop). Pass one to `matrix_elements` for numeric values:
+return the branch **current** and **voltage** operators. They come from a
+**circuit solve** — the elements' constitutive laws plus Kirchhoff — read off
+the reduced state, *not* from Heisenberg brackets (which misrepresent the
+physical node voltage once a gyrator mixes the flux and charge sectors).
+Inductive elements contribute their constitutive current (`Φ/L`, the Josephson
+supercurrent `E_J sin Φ`); capacitive elements their constitutive voltage
+(`Q/C`, `E_S sin Q`); node potentials follow from the capacitor voltages; a
+**gyrator** half-edge carries `I₁ = −G·V₂`, `I₂ = +G·V₁` (the ideal-gyrator
+relation); and the capacitive displacement currents follow from KCL. External
+biases enter through the branch variables, so a flux-biased junction's current
+carries the biased phase. The operators satisfy Kirchhoff's laws — currents sum
+to zero at every node, voltages around every loop — **including non-reciprocal
+(gyrator) circuits**. Pass one to `matrix_elements` for numeric values:
 
 ```python
 r = library.transmon().hamiltonian(canonical=True)
 r.current("e1")                                  # -> E_J*sin(phi_v2)  (supercurrent)
-r.voltage("v1", "v2")                            # -> -q_f1/C          (node voltage)
+r.voltage("v1", "v2")                            # node-to-node voltage
 r.matrix_elements(r.current("e1"), {"C": 1.0, "E_J": 10.0}, cutoffs={"phi_v2": 60})
+
+cir = library.circulator().hamiltonian(ground="v1", open_loops="f4", canonical=True)
+cir.current("e4")                                # a gyrator half-edge current
 ```
 
 Results are in the manuscript's natural units (`hbar = 1`, `G_0 = 1`); convert
-with the `units` module. Gyrator half-edges have no one-port I–V law and are
-refused.
+with the `units` module.
 
 ### Matrix elements and coherence
 

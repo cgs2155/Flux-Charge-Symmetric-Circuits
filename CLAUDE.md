@@ -51,14 +51,21 @@ wrong or incomplete Hamiltonian.
   (φ↔q, A↔Bᵀ so vertices↔faces, C↔L, JJ↔QPS value-preserved, G→−1/G). Involution.
 - `observables.py` — `current(result, edge)` / `voltage(result, edge|a,b)` (also
   `ReductionResult.current`/`.voltage`): branch current/voltage operators in the
-  reduced coordinates. Current = constitutive `∂E/∂Φ` for inductive elements
-  (Φ/L, E_J sinΦ), `−{Q_e,H}` for capacitive; voltage = constitutive `∂E/∂Q` for
-  capacitive (Q/C, E_S sinQ), `−{Φ_e,H}` for inductive; node voltage
-  `{φ_a−φ_b,H}`. The EOM bracket `{X,H}=∇Xᵀf⁻¹∇H` reuses the same symplectic form
-  `commutators()` reports; biases flow in through H. Verified: KCL closes at
-  every node and KVL around every loop. Feed the operator to `matrix_elements`
-  for numeric values (it now accepts any expression, not just a bare coordinate).
-  One-ports only — a gyrator edge raises (no one-port I–V law). Natural units.
+  reduced coordinates, from a **circuit solve** (constitutive laws + Kirchhoff),
+  NOT Heisenberg brackets. Why not `{X,H}`: the reduction eliminates coordinates
+  and `canonical()` rescales survivors, so `{φ_v,H}` is *not* the physical node
+  voltage once a gyrator mixes the flux/charge sectors (it disagrees with the
+  definitional `V=Q/C`). `_solve_circuit` reads branch fluxes/charges off the
+  reduced state, then: inductive **current** = `∂E/∂Φ` (Φ/L, E_J sinΦ), capacitive
+  **voltage** = `∂E/∂Q` (Q/C, E_S sinQ); node potentials from the capacitor
+  voltages (`u_head−u_tail=∂E/∂Q`); **gyrator** half-edge current `I₁=−G V₂`,
+  `I₂=+G V₁` (ideal-gyrator relation); capacitive (displacement) currents from
+  KCL. Biases enter via the branch-variable offsets. Verified: **KCL closes at
+  every node and KVL around every loop, including the non-reciprocal circulator**
+  (gyrator half-edges carry current). `voltage(a,b)=u_a−u_b`. Feed the operator
+  to `matrix_elements` (now accepts any expression) for numeric values. Natural
+  units (ħ=1, G₀=1). Raises only if a node has no capacitive path to the
+  reference (a purely-inductive island).
 - `schematic.py` — planar schemdraw drawing. Half-gyrator crescent (normal to
   wire, faces partner). QPS = box with center line **normal to the wire**.
   Outer face auto-detected deterministically (largest face, fewest gyrator edges,
