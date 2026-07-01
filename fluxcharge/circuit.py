@@ -520,7 +520,7 @@ class Circuit:
         Inspect :meth:`ReductionResult.report` to see every step, and use
         :class:`~fluxcharge.reduction.Reducer` directly for full manual control.
         """
-        from .reduction import Reducer
+        from .reduction import Reducer, ReductionError
 
         # warn about floating (degree-1) terminals: such an element carries no
         # current and silently drops out of the dynamics.  Use
@@ -543,18 +543,36 @@ class Circuit:
             self.infer_loops()      # loops are optional: derive them from the graph
         self.validate()
 
-        r = Reducer(self)
-        if ground is None:
-            if self.vertices:
-                r.ground(self.vertices[0])
-        elif ground is not False:
-            r.ground(ground)
-        if open_loops:
-            if isinstance(open_loops, str):
-                open_loops = [open_loops]
-            r.open_loop(*open_loops)
-        r.auto_constraints(keep=keep, eliminate=eliminate)
-        result = r.to_hamiltonian()
+        def _reduce(prefer_flux):
+            r = Reducer(self)
+            if ground is None:
+                if self.vertices:
+                    r.ground(self.vertices[0])
+            elif ground is not False:
+                r.ground(ground)
+            if open_loops:
+                ol = [open_loops] if isinstance(open_loops, str) else open_loops
+                r.open_loop(*ol)
+            elim = eliminate
+            if prefer_flux and not eliminate:
+                # A gyrator couples flux<->charge, and the default (charge-first)
+                # elimination can then hit a *singular* target set: the
+                # constraints stay independent, but those particular coordinates
+                # don't span the constraint surface, so no closed-form solve
+                # exists (the elimination self-references).  Steering onto the
+                # flux coordinates -- honouring the formalism's flux-charge
+                # symmetry rather than the asymmetric default -- resolves it; it
+                # only reorders which coordinate each constraint absorbs.
+                elim = [str(c) for c in r.fluxes]
+            r.auto_constraints(keep=keep, eliminate=elim)
+            return r.to_hamiltonian()
+
+        try:
+            result = _reduce(prefer_flux=False)          # default (charge-first)
+        except ReductionError:
+            if eliminate or keep:
+                raise                # caller already steered targets; respect it
+            result = _reduce(prefer_flux=True)           # retry preferring fluxes
 
         if strict and not result.complete:
             residual = ", ".join(map(str, result.coordinates))

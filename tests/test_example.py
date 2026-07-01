@@ -602,6 +602,21 @@ def test_move_across_gyrator_partial_retains_gyrator():
     assert sum(1 for e in B3._elements if type(e).__name__ == "Gyrator") == 1
     assert np.allclose(gaps(A3, p3), gaps(B3, p3), atol=1e-9)
 
+    # a MIXED subset (a capacitor AND an inductor) also works.  The retained
+    # gyrator's flux<->charge coupling makes the reducer's default (charge-first)
+    # elimination singular; hamiltonian() detects that and re-picks a flux-based
+    # frame automatically.  Spectrum still preserved exactly.
+    A4 = Circuit()
+    A4.add_capacitor("ca", "n1", "n2", C="Ca")
+    A4.add_inductor("lb", "n1", "n2", L="Lb")
+    A4.add_capacitor("ce", "n1", "n2", C="Ce")
+    A4.add_inductor("ld", "n3", "n4", L="Ld")
+    A4.add_gyrator(("gn", "n1", "n2"), ("gf", "n3", "n4"), G=2)
+    A4.ground = "n1"
+    B4 = move_across_gyrator(A4, ["ca", "lb"])   # move a cap + an inductor; leave ce
+    assert sum(1 for e in B4._elements if type(e).__name__ == "Gyrator") == 1
+    assert np.allclose(gaps(A4, p3), gaps(B4, p3), atol=1e-6)
+
 
 def test_floating_terminal_warns_and_drops():
     """A degree-1 (floating) terminal carries no current, so its element drops
