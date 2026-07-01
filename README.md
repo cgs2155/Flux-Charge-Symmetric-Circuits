@@ -145,7 +145,10 @@ reliably on macOS. Set `FLUXCHARGE_DEBUG=1` to log GUI actions to
 `~/fluxcharge_gui.log` for troubleshooting.
 
 The **Dualize** button replaces the circuit with its LCG dual and regenerates;
-press it again to return.
+press it again to return.  The **partial-dual** control beside it (`move edges:`
+… `across gyrator ⤨`) moves a reciprocal block — one or more edge names sharing
+a gyrator port — across that gyrator as its dual: moving a whole port removes the
+gyrator, moving a subset keeps it (the manuscript's partial-dual move).
 
 The desktop app also exposes the analysis features: a **Circuits** menu loads a
 ready-made circuit from the library; the numerics panel has a **physical units**

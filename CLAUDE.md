@@ -56,7 +56,8 @@ wrong or incomplete Hamiltonian.
 - `gui.py` — themed Tkinter app (`fluxcharge-gui`). `compute()` is the headless
   core (testable). Renders schematic + Ĥ + commutators via matplotlib mathtext
   (cm fontset); operators are hatted, c-number params are not. "LaTeX (system
-  TeX)" toggle (usetex with mathtext fallback). "Dualize" button. "Sweep" (static
+  TeX)" toggle (usetex with mathtext fallback). "Dualize" button + a partial-dual
+  control ("move edges: … across gyrator ⤨", `move_across_gyrator`). "Sweep" (static
   spectrum-vs-parameter) and **"Live"** (interactive `interactive.spectrum_vs_param`
   embedded via `FigureCanvasTkAgg`, so the sliders are responsive in-app).
 - `interactive.py` — standalone interactive spectrum explorers on `matplotlib.

@@ -30,7 +30,7 @@ import sympy as sp
 
 from .elements import Capacitor, Inductor
 from .netlist import from_netlist, to_netlist
-from .transformations import dual
+from .transformations import dual, move_across_gyrator
 
 
 EXAMPLE = """\
@@ -687,6 +687,16 @@ def main():  # pragma: no cover - interactive
                           command=lambda: dualize())
     dual_btn.pack(fill="x", pady=(6, 0))
 
+    # partial dual: move a reciprocal block across the gyrator terminating its
+    # port (the manuscript's partial-dual move).  The block is one or more edge
+    # names sharing a gyrator port; moving all of a port removes the gyrator,
+    # moving a subset retains it (see move_across_gyrator).
+    pd = ttk.Frame(left); pd.pack(fill="x", pady=(6, 0))
+    ttk.Label(pd, text="move edges:", style="Muted.TLabel").pack(side="left")
+    move_entry = ttk.Entry(pd, width=12); move_entry.pack(side="left", padx=(4, 4))
+    ttk.Button(pd, text="across gyrator  \u2928",
+               command=lambda: partial_dual()).pack(side="left", fill="x", expand=True)
+
     # ---- right: outputs (figure on top; a bottom row shares the numerical
     # diagonalization controls with the details report, using the wide lower
     # real estate instead of overflowing the narrow left column) ----
@@ -1006,6 +1016,26 @@ def main():  # pragma: no cover - interactive
             d = dual(ckt)
             netlist.delete("1.0", "end")
             netlist.insert("1.0", to_netlist(d))
+            clear_error()
+        except Exception as exc:
+            report_error(exc)
+            return
+        generate()
+
+    def partial_dual():
+        edges = move_entry.get().replace(",", " ").split()
+        if not edges:
+            report_error(ValueError(
+                "type the edge name(s) to move (a block on one gyrator port, "
+                "e.g. 'jb' or 'jb cj') in the 'move edges' box"))
+            return
+        text = netlist.get("1.0", "end-1c")
+        try:
+            ckt = from_netlist(text)
+            ckt.validate()
+            moved = move_across_gyrator(ckt, edges)
+            netlist.delete("1.0", "end")
+            netlist.insert("1.0", to_netlist(moved))
             clear_error()
         except Exception as exc:
             report_error(exc)
