@@ -436,6 +436,10 @@ Four focused, runnable notebooks cover specific workflows:
 - [`examples/scqubits_import.ipynb`](examples/scqubits_import.ipynb) —
   `from_scqubits_yaml`, cross-check the spectrum against scqubits, then extend the
   circuit past what scqubits can express.
+- [`examples/measurements.ipynb`](examples/measurements.ipynb) — branch
+  **currents and voltages**: the Josephson supercurrent, node voltages, matrix
+  elements, and the gyrator currents of the non-reciprocal circulator (with
+  Kirchhoff's laws closing).
 
 ### Exporting to QuTiP
 
