@@ -135,7 +135,8 @@
       "Bash(git rev-list *)",
       "Bash(git commit -m ' *)",
       "Bash(cd /Users/ciro/Desktop/Flux-Charge-Symmetric-Circuits *)",
-      "Read(//Users/ciro/Downloads/**)"
+      "Read(//Users/ciro/Downloads/**)",
+      "Bash(grep -iE \"smoke|scratch|\\\\.bak$|CANONICAL|zeropi_can\")"
     ],
     "additionalDirectories": [
       "/tmp"
